@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEXUS v28 - ZENITH:ZERO [ULTIMATE]</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root { --c:#0ff; --g:#0f8; --a:#fc0; --r:#f33; --panel: rgba(0,8,15,0.95); }
+body { margin:0; overflow:hidden; background:#000; color:var(--c); font-family:'Share Tech Mono', monospace; user-select:none; }
+body.night-mode { --c:#f00; --g:#f00; --a:#f00; color:#f00; }
+#lumi-video { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; opacity:0.18; filter: grayscale(1) contrast(1.2); }
+#matrix-canvas { position:fixed; inset:0; z-index:2; opacity:0.6; pointer-events:none; }
+#ar-canvas { position:fixed; inset:0; z-index:3; opacity:0; pointer-events:none; transition: opacity 2s; }
+
+/* UI Layout - エルゴノミクス改善 */
+#boot-screen { position:fixed; inset:0; z-index:200; display:flex; flex-direction:column; background:#000; }
+.mode-select { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border:1px solid rgba(0,255,255,0.05); cursor:pointer; transition: 0.3s; }
+.mode-select:active { background: rgba(0,255,255,0.1); }
+
+#calib-panel { position:fixed; bottom:15%; left:50%; transform:translateX(-50%); background:var(--panel); width:85%; padding:30px 20px; border:1px solid var(--c); z-index:300; display:none; text-align:center; box-shadow: 0 0 40px rgba(0,255,255,0.1); }
+#calib-panel button { width:100%; padding:22px; margin-top:25px; background: linear-gradient(90deg, transparent, var(--c), transparent); color:#000; border:none; font-weight:bold; cursor:pointer; font-size:20px; letter-spacing:6px; }
+
+#hud-overlay { position:fixed; inset:0; z-index:100; display:none; pointer-events:none; }
+#console { position:fixed; top:env(safe-area-inset-top, 20px); left:15px; width:calc(100% - 30px); height:200px; font-size:9px; overflow:hidden; line-height:1.3; opacity:0.9; mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent); }
+#status-panel { position:fixed; bottom:140px; width:100%; text-align:center; }
+#sqi-val { font-size:72px; font-weight:bold; text-shadow:0 0 30px var(--c); letter-spacing:-2px; }
+#progress-bar { position:fixed; bottom:0; height:12px; background:var(--c); width:0%; transition: 0.1s; box-shadow: 0 0 25px var(--c); }
+
+#ar-controls { position:fixed; bottom:40px; left:50%; transform:translateX(-50%); width:88%; z-index:110; display:none; background:rgba(0,10,15,0.92); padding:18px; border:1px solid var(--c); text-align:center; backdrop-filter: blur(10px); border-radius:4px; }
+input[type=range] { width:100%; accent-color:var(--c); height:30px; }
+</style>
+</head>
+<body>
+
+<video id="lumi-video" autoplay playsinline muted></video>
+<canvas id="lumi-canvas" style="display:none;"></canvas>
+<canvas id="matrix-canvas"></canvas>
+<canvas id="ar-canvas"></canvas>
+
+<div id="boot-screen">
+    <div class="mode-select" onclick="openCalibration('NORMAL')">
+        <div style="font-size:28px; letter-spacing:10px; font-weight:bold;">STANDARD</div>
+        <div style="font-size:10px; opacity:0.5; margin-top:10px;">CYAN OPTICAL SENSOR SYNC</div>
+    </div>
+    <div class="mode-select" onclick="openCalibration('NIGHT')" style="color:#f00; border-top:1px solid rgba(255,0,0,0.1);">
+        <div style="font-size:28px; letter-spacing:10px; font-weight:bold;">NIGHT VISION</div>
+        <div style="font-size:10px; opacity:0.5; margin-top:10px;">TACTICAL IR-EMULATION MODE</div>
+    </div>
+</div>
+
+<div id="calib-panel">
+    <div id="mode-label" style="color:var(--a); font-size:16px; font-weight:bold; letter-spacing:2px;">--</div>
+    <div style="font-size:11px; margin-top:12px; line-height:1.7; opacity:0.8; letter-spacing:1px;">STABILIZE DEVICE ON ZENITH<br>INITIALIZING MULTI-FRAME DARK CORRECTION</div>
+    <button onclick="startCalibration()">ENGAGE SYNC</button>
+</div>
+
+<div id="hud-overlay">
+    <div id="console"></div>
+    <div id="status-panel">
+        <div id="sqi-val">00.0</div>
+        <div id="status-msg" style="font-size:10px; letter-spacing:6px; opacity:0.7; font-weight:bold; margin-top:5px;">CONVERGING...</div>
+    </div>
+    <div id="progress-bar"></div>
+</div>
+
+<div id="ar-controls">
+    <div id="slider-label" style="font-size:13px; font-weight:bold; letter-spacing:2px; margin-bottom:10px;">BORTLE SCALE: --</div>
+    <input type="range" id="bortle-slider" min="1" max="9" step="0.1">
+</div>
+
+<script>
+let CURRENT_MODE='NORMAL';
+let orient={b:-90,g:0,h:0};
+let isActive = false;
+let darkFrameValue = 0;
+let moonPenaltyValue = 0;
+
+window.addEventListener('deviceorientation', e => { orient.b=e.beta; orient.g=e.gamma; orient.h=e.alpha; });
+
+// --- HYPER-MATRIX RENDERER (速度階層化) ---
+const Matrix = {
+    canvas: document.getElementById('matrix-canvas'), ctx: null, lines: [],
+    init() { this.ctx = this.canvas.getContext('2d'); this.canvas.width = window.innerWidth; this.canvas.height = window.innerHeight; },
+    push(tag, text, priority = 1) { 
+        // 優先度(priority)が高いほど明るく、ゆっくり流す
+        this.lines.push({
+            txt: `[${tag}] ${text}`, 
+            y: this.canvas.height, 
+            x: Math.random() * this.canvas.width * 0.75, 
+            alpha: priority === 2 ? 1.5 : 0.8, 
+            speed: priority === 2 ? 1.2 : 3.5,
+            p: priority
+        }); 
+        if(this.lines.length > 60) this.lines.shift(); 
+    },
+    render() {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.font = '8px "Share Tech Mono"';
+        const color = CURRENT_MODE==='NIGHT' ? '#f00' : '#0ff';
+        this.lines.forEach(l => { 
+            l.y -= l.speed; l.alpha -= 0.01; 
+            this.ctx.globalAlpha = Math.max(0, l.alpha); 
+            this.ctx.fillStyle = color;
+            this.ctx.fillText(l.txt, l.x, l.y); 
+        });
+        requestAnimationFrame(() => this.render());
+    }
+};
+
+const Core = {
+    SAMPLE_W:64, SAMPLE_H:48,
+    prevStarsMap:[], prevStarsMap2:[],
+    toLinear(v){ v/=255; return (v<=0.04045)?v/12.92:Math.pow((v+0.055)/1.055,2.4); },
+    isNear(a,b,w=64){ const dx=(a%w)-(b%w), dy=Math.floor(a/w)-Math.floor(b/w); return (dx*dx + dy*dy) <= 3; },
+    analyze(video, canvas) {
+        if(video.readyState < 2) return null;
+        const ctx = canvas.getContext('2d');
+        canvas.width = this.SAMPLE_W; canvas.height = this.SAMPLE_H;
+        ctx.drawImage(video, 0, 0, this.SAMPLE_W, this.SAMPLE_H);
+        const data = ctx.getImageData(0,0,this.SAMPLE_W,this.SAMPLE_H).data;
+        
+        let lumArray = [], rT=0, gT=0, bT=0;
+        for(let i=0; i<data.length; i+=4) {
+            const r=this.toLinear(data[i]), g=this.toLinear(data[i+1]), b=this.toLinear(data[i+2]);
+            lumArray.push(0.2126*r + 0.7152*g + 0.0722*b); rT+=r; gT+=g; bT+=b;
+        }
+        const avgL = lumArray.reduce((a,b)=>a+b,0)/lumArray.length; lumArray.sort((a,b)=>a-b);
+        const noiseF = lumArray[Math.floor(lumArray.length * 0.05)];
+        const meanL = Math.max(0.00001, avgL - (darkFrameValue || noiseF));
+        const polIdx = (rT + 0.001) / (bT + 0.001);
+        
+        // 星検出ロジック
+        const std = Math.sqrt(lumArray.reduce((a,b)=>a + Math.pow(b - avgL, 2), 0) / lumArray.length);
+        const thr = meanL + std * 2.85;
+        let starMap = [];
+        for(let i=0; i<lumArray.length; i++) if(lumArray[i] > thr) starMap.push(i);
+        const persist = starMap.filter(p => this.prevStarsMap.some(q => this.isNear(p,q)) && this.prevStarsMap2.some(q => this.isNear(p,q)));
+        this.prevStarsMap2 = [...this.prevStarsMap]; this.prevStarsMap = [...starMap];
+        
+        const sScore = 65 * (1 - Math.exp(-persist.length / (std + 1) / 4.5));
+        let sqm = 22.0 - 2.5 * Math.log10(meanL * 1450 + 0.008);
+        sqm = sqm - (polIdx - 1.0) * 1.65 + (sScore * 0.095) - moonPenaltyValue * 1.35;
+        
+        // 演出：階層化マトリックス
+        if(Math.random() > 0.4) Matrix.push("SENSOR", `RAW:${avgL.toFixed(6)}`, 1);
+        if(Math.random() > 0.7) Matrix.push("PHYSICS", `L_NET:${meanL.toFixed(6)} | POL:${polIdx.toFixed(2)}`, 2);
+        if(Math.random() > 0.85) Matrix.push("CORE", `SQM:${sqm.toFixed(2)} | STARS:${persist.length}`, 2);
+        
+        return { sqm, pollution: polIdx, stars: persist.length, raw: avgL };
+    }
+};
+
+function addLog(msg){ 
+    const c=document.getElementById('console'); 
+    c.innerHTML+=`> <span style="color:var(--a)">[LOG]</span> ${msg}<br>`; 
+    c.scrollTop=c.scrollHeight; 
+    if(c.childNodes.length>22) c.removeChild(c.firstChild); 
+}
+
+function getMoonPenalty(lat, lon) {
+    const d = (new Date().getTime()/86400000 + 2440587.5) - 2451545.0;
+    const age = (d - 2451550.1) % 29.53;
+    const lum = Math.pow((1 - Math.cos(age/29.53*2*Math.PI))/2, 2.0);
+    const altF = Math.max(0, Math.sin((lat * Math.PI/180) * 0.75));
+    return lum * 4.8 * altF;
+}
+
+function openCalibration(mode) {
+    CURRENT_MODE = mode; if(mode==='NIGHT') document.body.classList.add('night-mode');
+    document.getElementById('boot-screen').style.display='none';
+    document.getElementById('calib-panel').style.display='block';
+    document.getElementById('mode-label').innerText = `ID: ZENITH_ZERO_${mode}`;
+    Matrix.init(); Matrix.render();
+}
+
+async function startCalibration() {
+    if(typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
+    document.getElementById('calib-panel').style.display='none';
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment", width:1280}});
+    document.getElementById("lumi-video").srcObject = stream;
+    document.getElementById('hud-overlay').style.display = 'block';
+    
+    addLog("DARK_FRAME: SAMPLING...");
+    let dS=0, dC=0;
+    for(let i=0; i<10; i++) {
+        await new Promise(r => setTimeout(r, 100));
+        const res = Core.analyze(document.getElementById("lumi-video"), document.getElementById("lumi-canvas"));
+        if(res) { dS += res.raw; dC++; }
+    }
+    darkFrameValue = dS / dC;
+    addLog(`NOISE_FLOOR: ${darkFrameValue.toFixed(6)}`);
+    
+    if(navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+            moonPenaltyValue = getMoonPenalty(pos.coords.latitude, pos.coords.longitude);
+            addLog(`GPS_LOCK: ${pos.coords.latitude.toFixed(1)}N | MOON_P:${moonPenaltyValue.toFixed(2)}`);
+        }, () => { moonPenaltyValue = 2.0; addLog("GPS_FAIL: FALLBACK PENALTY 2.0"); });
+    }
+
+    let history = [], calibStartTime = Date.now();
+    let loop = setInterval(() => {
+        const res = Core.analyze(document.getElementById("lumi-video"), document.getElementById("lumi-canvas"));
+        if(!res) return;
+        const elapsed = (Date.now() - calibStartTime) / 1000;
+        history.push(res); if(history.length > 15) history.shift();
+        const aSQM = history.reduce((a,b)=>a+b.sqm,0)/history.length;
+        const vari = history.reduce((a,b)=>a+Math.pow(b.sqm-aSQM,2),0)/history.length;
+        
+        document.getElementById('progress-bar').style.width = (Math.min(1, elapsed/30)*100)+"%";
+        document.getElementById('sqi-val').innerText = res.sqm.toFixed(1);
+
+        if((history.length >= 12 && vari < 0.07 + elapsed*0.012) || elapsed > 35) {
+            clearInterval(loop);
+            addLog("PRECISION_SYNC_COMPLETE.");
+            if('vibrate' in navigator) navigator.vibrate([150, 50, 150]);
+            setTimeout(() => launchAR(aSQM, res.pollution), 1000);
+        }
+    }, 160);
+}
+
+let scene, camera, renderer, starPoints;
+function init3D() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({canvas: document.getElementById('ar-canvas'), alpha:true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    const geo = new THREE.BufferGeometry(); let p = [];
+    for(let i=0; i<5000; i++) p.push((Math.random()-0.5)*600, (Math.random()-0.5)*600, (Math.random()-0.5)*600);
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    const mat = new THREE.PointsMaterial({size: 0.7, color: 0x00ffff, transparent: true, opacity: 0.8});
+    starPoints = new THREE.Points(geo, mat); scene.add(starPoints);
+    (function anim(){
+        requestAnimationFrame(anim);
+        if(isActive) camera.rotation.set(THREE.MathUtils.degToRad(orient.b), THREE.MathUtils.degToRad(orient.h), THREE.MathUtils.degToRad(-orient.g), 'YXZ');
+        renderer.render(scene, camera);
+    })();
+}
+
+function launchAR(sqm, pollution) {
+    document.getElementById('hud-overlay').style.opacity = "0";
+    setTimeout(() => document.getElementById('hud-overlay').style.display='none', 1000);
+    document.getElementById('ar-canvas').style.opacity = "1";
+    document.getElementById('ar-controls').style.display = "block";
+    let b = Math.max(1, Math.min(9, (22 - sqm) * 2.3 + 1));
+    if(pollution > 1.25) b = Math.min(9, b + 1.2);
+    document.getElementById('bortle-slider').value = b;
+    updateAR(b);
+    isActive = true;
+    if(Math.random() > 0.5) Matrix.push("SYSTEM", "AR_OVERLAY_ACTIVE", 2);
+}
+
+function updateAR(b) {
+    document.getElementById('slider-label').innerText = `BORTLE SCALE: ${parseFloat(b).toFixed(1)}`;
+    starPoints.material.size = (12 - b) * 0.13;
+    if(CURRENT_MODE==='NIGHT') starPoints.material.color.setHex(0xff0000);
+}
+
+document.getElementById('bortle-slider').oninput = (e) => updateAR(e.target.value);
+init3D();
+</script>
+</body>
+</html>
