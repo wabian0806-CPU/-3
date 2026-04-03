@@ -4,86 +4,99 @@
     <meta charset="UTF-8">
     <meta name="robots" content="noindex, nofollow">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>NEXUS_v23_FULL_STABLE</title>
+    <title>NEXUS v23 - 日本語環境</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <style>
         :root { --c:#0ff; --g:#0f8; --a:#fc0; --r:#f10; --bg:#000; }
-        body { margin:0; overflow:hidden; background:#000; color:var(--c); font-family:monospace; touch-action:none; }
+        body { margin:0; overflow:hidden; background:#000; color:var(--c); font-family: "Hiragino Sans", "Meiryo", monospace; touch-action:none; }
         
         #ar-canvas { position:fixed; inset:0; z-index:10; }
 
-        /* 起動画面 */
+        /* 起動オーバーレイ */
         #boot-overlay { 
             position:fixed; inset:0; z-index:100; 
-            background:rgba(0,10,20,0.95); padding:20px; 
+            background:rgba(0,10,20,0.95); padding:25px; 
             display:flex; flex-direction:column; align-items:center; justify-content:center; 
         }
-        #console { width:100%; flex:1; overflow:auto; font-size:10px; margin-bottom:20px; border:1px solid rgba(0,255,255,0.2); padding:10px; line-height:1.4; }
-        .log { margin-bottom:2px; } .log.ok { color:var(--g); } .log.warn { color:var(--a); }
+        #console { width:100%; flex:1; overflow:auto; font-size:11px; margin-bottom:20px; border:1px solid rgba(0,255,255,0.3); padding:12px; background:rgba(0,0,0,0.5); }
+        .log { margin-bottom:4px; border-left: 2px solid var(--c); padding-left: 8px; }
+        .log.ok { color:var(--g); border-left-color:var(--g); }
+        .log.warn { color:var(--a); border-left-color:var(--a); }
 
         #start-btn { 
-            width:90%; padding:25px; background:none; border:2px solid var(--g); 
-            color:var(--g); font-size:18px; font-weight:bold; cursor:pointer; letter-spacing:3px;
+            width:90%; padding:20px; background:rgba(0,255,128,0.1); border:2px solid var(--g); 
+            color:var(--g); font-size:18px; font-weight:bold; cursor:pointer; letter-spacing:4px;
+            box-shadow: 0 0 15px rgba(0,255,128,0.2);
         }
 
-        /* 高精度HUDガイド */
+        /* 強化型HUD */
         #calib-hud { 
             position:fixed; inset:0; z-index:50; display:none; 
             flex-direction:column; align-items:center; justify-content:center; 
-            pointer-events:none; transition: opacity 0.5s;
+            pointer-events:none;
         }
 
-        .zenith-reticle { 
-            width:160px; height:160px; 
-            border:2px dashed rgba(255,204,0,0.3); border-radius:50%; 
-            margin-bottom:30px; transition: all 0.25s ease;
-            display:flex; align-items:center; justify-content:center;
-            position:relative;
-        }
-        /* 中心点（水準器ドット） */
-        .zenith-reticle::after {
-            content: ""; width:8px; height:8px; background:var(--a); border-radius:50%;
-            transition: transform 0.1s;
-        }
-        /* ロックオン状態 */
-        .zenith-reticle.active { 
-            border:3px solid var(--g); border-style:solid; transform:scale(1.1); 
-            box-shadow: 0 0 20px rgba(0,255,128,0.5);
-        }
-
-        #lumi-stat { font-size:36px; color:var(--a); margin:15px; font-weight:bold; text-shadow:0 0 10px rgba(255,204,0,0.4); }
+        /* 天頂レティクル（水準器機能付き） */
+        .reticle-container { position:relative; width:200px; height:200px; margin-bottom:20px; }
         
-        .progress-box { width:220px; height:4px; border:1px solid var(--c); background:rgba(0,255,255,0.1); overflow:hidden; }
-        #bar { height:100%; background:var(--g); width:0%; transition: width 0.1s; }
+        .zenith-reticle { 
+            position:absolute; inset:0;
+            border:1px dashed rgba(0,255,255,0.3); border-radius:50%; 
+            transition: all 0.3s ease;
+        }
+        
+        /* 誘導ドット（水準器） */
+        #guide-dot {
+            position:absolute; width:12px; height:12px; background:var(--a); border-radius:50%;
+            left:50%; top:50%; margin:-6px 0 0 -6px;
+            transition: transform 0.1s linear;
+            box-shadow: 0 0 10px var(--a);
+        }
 
-        /* 特殊視覚効果 */
-        #scanline { position:fixed; inset:0; z-index:25; pointer-events:none; background: repeating-linear-gradient(to bottom, rgba(0,255,255,0.03) 0px, transparent 2px, transparent 4px); animation: scan 8s linear infinite; }
-        @keyframes scan { from { background-position-y:0; } to { background-position-y:100px; } }
-        .flash { animation: flashAnim 0.5s ease-out; }
-        @keyframes flashAnim { 0% { background:#fff; } 100% { background:#000; } }
+        .zenith-reticle.active { 
+            border:2px solid var(--g); transform:scale(1.1); 
+            box-shadow: 0 0 30px rgba(0,255,128,0.4);
+        }
+
+        /* ガイダンス情報表示 */
+        #status-display { text-align:center; min-height:80px; }
+        #main-msg { font-size:24px; color:var(--a); font-weight:bold; margin-bottom:5px; text-shadow:0 0 10px rgba(255,204,0,0.5); }
+        #sub-msg { font-size:12px; color:var(--c); opacity:0.8; letter-spacing:1px; }
+        
+        .progress-box { width:240px; height:2px; background:rgba(0,255,255,0.1); margin-top:20px; position:relative; }
+        #bar { height:100%; background:var(--g); width:0%; transition: width 0.1s; box-shadow:0 0 8px var(--g); }
+
+        /* スキャンライン効果 */
+        #vfx-layer { position:fixed; inset:0; z-index:25; pointer-events:none; background: repeating-linear-gradient(0deg, rgba(0,255,255,0.03) 0px, transparent 1px, transparent 3px); }
     </style>
 </head>
 <body>
 
 <canvas id="ar-canvas"></canvas>
-<div id="scanline"></div>
+<div id="vfx-layer"></div>
 
 <div id="boot-overlay">
-    <div style="letter-spacing:5px; margin-bottom:15px; font-weight:bold;">NEXUS SYSTEM v23</div>
+    <div style="font-size:20px; letter-spacing:8px; margin-bottom:20px; font-weight:bold; color:var(--c);">NEXUS v23</div>
     <div id="console"></div>
-    <button id="start-btn">INITIALIZE</button>
+    <button id="start-btn">システム起動</button>
 </div>
 
 <div id="calib-hud">
-    <div id="reticle" class="zenith-reticle"></div>
-    <div id="lumi-stat">↑ ALIGN SKY ↑</div>
+    <div class="reticle-container">
+        <div id="reticle" class="zenith-reticle"></div>
+        <div id="guide-dot"></div>
+    </div>
+    
+    <div id="status-display">
+        <div id="main-msg">天頂待機中</div>
+        <div id="sub-msg">カメラを真上の空へ向けてください</div>
+    </div>
+
     <div class="progress-box"><div id="bar"></div></div>
-    <div id="meta" style="font-size:10px; margin-top:10px; color:rgba(0,255,255,0.5);">STABLE SENSOR SYNC...</div>
 </div>
 
 <script>
 let scene, camera, renderer, stars, zenithOK = false;
-let lastBeta = 0;
 
 function log(t, c="") {
     const d = document.createElement("div");
@@ -92,7 +105,7 @@ function log(t, c="") {
     con.appendChild(d); con.scrollTop = con.scrollHeight;
 }
 
-// --- AR INITIALIZE ---
+// --- AR環境初期化 ---
 function initAR() {
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -101,7 +114,7 @@ function initAR() {
     
     const geo = new THREE.BufferGeometry();
     const pos = [];
-    for(let i=0; i<3000; i++) pos.push((Math.random()-0.5)*180, (Math.random()-0.5)*180, (Math.random()-0.5)*180);
+    for(let i=0; i<3000; i++) pos.push((Math.random()-0.5)*200, (Math.random()-0.5)*200, (Math.random()-0.5)*200);
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     stars = new THREE.Points(geo, new THREE.PointsMaterial({color:0xffffff, size:0.25, opacity:0, transparent:true}));
     scene.add(stars);
@@ -110,70 +123,68 @@ function initAR() {
     (function animate(){ requestAnimationFrame(animate); renderer.render(scene, camera); })();
 }
 
-// --- SENSOR & CAMERA PERMISSION ---
+// --- 権限取得と起動 ---
 document.getElementById('start-btn').addEventListener('click', async () => {
-    log("REQUESTING HARDWARE ACCESS...");
+    log("ハードウェア・アクセス要求中...");
 
-    // 1. Motion & Orientation (iOS対応)
-    const sensorEvent = (typeof DeviceOrientationEvent !== 'undefined') ? DeviceOrientationEvent : null;
-    if (sensorEvent && typeof sensorEvent.requestPermission === 'function') {
+    // モーションセンサー（iOS対応）
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         try {
-            const res = await sensorEvent.requestPermission();
+            const res = await DeviceOrientationEvent.requestPermission();
             if (res === 'granted') {
-                log("MOTION SENSOR: GRANTED", "ok");
+                log("モーションセンサー：接続完了", "ok");
                 window.addEventListener("deviceorientation", onOrientation, true);
-            } else { log("MOTION SENSOR: DENIED", "warn"); }
-        } catch (e) { log("ERROR: " + e.message, "warn"); }
+            }
+        } catch (e) { log("センサーエラー: " + e.message, "warn"); }
     } else {
         window.addEventListener("deviceorientation", onOrientation, true);
-        log("MOTION SENSOR: ATTACHED", "ok");
+        log("モーションセンサー：準備完了", "ok");
     }
 
-    // 2. Camera Access
+    // カメラ
     try {
         const stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment"}});
-        log("CAMERA STREAM: ONLINE", "ok");
+        log("光学デバイス：オンライン", "ok");
         startCalibration(stream);
-    } catch (e) {
-        log("CAMERA ERROR: " + e.message, "warn");
-    }
+    } catch (e) { log("カメラアクセス拒否: " + e.message, "warn"); }
 });
 
-// --- HIGH PRECISION ORIENTATION LOGIC ---
+// --- オリエンテーション制御（HUDガイド込） ---
 function onOrientation(e) {
     if(e.alpha === null) return;
     
-    // AR回転
     camera.rotation.set(THREE.MathUtils.degToRad(e.beta), THREE.MathUtils.degToRad(e.alpha), THREE.MathUtils.degToRad(-e.gamma), 'YXZ');
 
-    // 判定ロジック：ピッチ(beta)かロール(gamma)が垂直(90度)に近ければOK
-    const pitch = Math.abs(e.beta);
-    const roll = Math.abs(e.gamma);
-    const verticality = Math.max(pitch, roll);
-    
-    // 手ブレ検知：前回との差分が小さい＝安定
-    const isStable = Math.abs(e.beta - lastBeta) < 1.5;
-    lastBeta = e.beta;
+    // 水準器ドットの移動（中心からのズレを可視化）
+    const dot = document.getElementById("guide-dot");
+    const moveX = Math.max(-80, Math.min(80, e.gamma));
+    const moveY = Math.max(-80, Math.min(80, e.beta + 90)); // -90度が真上
+    dot.style.transform = `translate(${moveX}px, ${moveY}px)`;
 
-    // 75度以上かつ静止していればLOCKED
-    zenithOK = (verticality > 75 && isStable);
+    // 天頂判定（真上前後15度以内ならOK）
+    const isUp = (Math.abs(e.beta + 90) < 15 && Math.abs(e.gamma) < 15);
+    zenithOK = isUp;
 
-    // HUDフィードバック
     const ret = document.getElementById("reticle");
-    const stat = document.getElementById("lumi-stat");
-    
+    const mainMsg = document.getElementById("main-msg");
+    const subMsg = document.getElementById("sub-msg");
+
     if(zenithOK) {
         ret.classList.add("active");
-        stat.textContent = "LOCKED";
-        stat.style.color = "var(--g)";
+        mainMsg.textContent = "ロックオン";
+        mainMsg.style.color = "var(--g)";
+        subMsg.textContent = "環境光データを抽出しています...";
+        dot.style.background = "var(--g)";
     } else {
         ret.classList.remove("active");
-        stat.style.color = "var(--a)";
-        stat.textContent = verticality > 50 ? "STEADY..." : "↑ ALIGN SKY ↑";
+        mainMsg.textContent = "天頂待機中";
+        mainMsg.style.color = "var(--a)";
+        subMsg.textContent = "カメラを真上の空へ向けてください";
+        dot.style.background = "var(--a)";
     }
 }
 
-// --- CALIBRATION SEQUENCE ---
+// --- 解析シーケンス ---
 function startCalibration(stream) {
     document.getElementById("boot-overlay").style.display = "none";
     document.getElementById("calib-hud").style.display = "flex";
@@ -187,38 +198,38 @@ function startCalibration(stream) {
     const loop = setInterval(() => {
         if(!zenithOK) return;
 
-        // 輝度サンプリング（中央値・白飛び除外ロジック）
-        c.width = 48; c.height = 48;
-        ctx.drawImage(v, 0, 0, 48, 48);
-        const data = ctx.getImageData(0,0,48,48).data;
-        let arr = [];
-        for(let i=0; i<data.length; i+=4) {
-            let val = (data[i] + data[i+1] + data[i+2]) / 3;
-            if(val < 253) arr.push(val);
+        // 輝度解析（A方式：中央値抽出）
+        c.width = 40; c.height = 40;
+        ctx.drawImage(v, 0, 0, 40, 40);
+        const img = ctx.getImageData(0,0,40,40).data;
+        let brightnessSet = [];
+        for(let i=0; i<img.length; i+=4) {
+            let b = (img[i] + img[i+1] + img[i+2]) / 3;
+            if(b < 250) brightnessSet.push(b);
         }
-        if(arr.length === 0) return;
-        arr.sort((a,b) => a-b);
-        let median = arr[Math.floor(arr.length / 2)];
+        if(brightnessSet.length === 0) return;
+        brightnessSet.sort((a,b)=>a-b);
+        let median = brightnessSet[Math.floor(brightnessSet.length/2)];
         
         samples.push(median);
         document.getElementById("bar").style.width = samples.length + "%";
         
         if(samples.length >= 100) {
             clearInterval(loop);
-            const finalLumi = samples.reduce((a,b)=>a+b)/samples.length;
-            finalize(finalLumi);
+            const avg = samples.reduce((a,b)=>a+b)/samples.length;
+            finalize(avg);
         }
-    }, 50);
+    }, 40);
 }
 
-// --- FINALIZATION ---
+// --- 最終同期 ---
 function finalize(lumi) {
-    document.body.classList.add("flash");
-    setTimeout(() => document.body.classList.remove("flash"), 400);
-
-    // 星空の浮き上がり
+    // 成功演出
+    const mainMsg = document.getElementById("main-msg");
+    mainMsg.textContent = "同期完了";
+    
     let op = 0;
-    const targetAlpha = Math.max(0.4, 1 - (lumi/150));
+    const targetAlpha = Math.max(0.3, 1 - (lumi/180));
     const reveal = setInterval(() => {
         op += 0.05;
         stars.material.opacity = op * targetAlpha;
@@ -226,7 +237,7 @@ function finalize(lumi) {
             clearInterval(reveal);
             document.getElementById("calib-hud").style.opacity = "0";
             setTimeout(() => {
-                alert(`NEXUS SYNC COMPLETE\nSKY LUMI: ${lumi.toFixed(1)}\nSTAR VISIBILITY: ${Math.round(targetAlpha*100)}%`);
+                alert(`NEXUS同期成功\nスカイ・ルミナンス: ${lumi.toFixed(1)}\n星空の可視度: ${Math.round(targetAlpha*100)}%`);
             }, 500);
         }
     }, 50);
@@ -234,8 +245,9 @@ function finalize(lumi) {
 
 window.onload = () => {
     initAR();
-    log("NEXUS_OS [v23] INITIALIZING...");
-    setTimeout(() => log("MNCE_HYBRID_ENGINE... READY", "ok"), 500);
+    log("NEXUS システム [v23] 初期化中...");
+    setTimeout(() => log("ハイブリッド解析エンジン：準備完了", "ok"), 500);
+    setTimeout(() => log("AR空間同期モジュール：待機中", "ok"), 1000);
 };
 </script>
 </body>
