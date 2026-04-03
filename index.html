@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>NEXUS v23 - ZENITH:ZERO [FINAL PRO v2]</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root { --c:#0ff; --g:#0f8; --a:#fc0; --r:#f33; --panel: rgba(0,10,20,0.98); }
+body { margin:0; overflow:hidden; background:#000; color:var(--c); font-family:'Share Tech Mono', monospace; transition: 0.5s; }
+body.night-mode { --c:#f00; --g:#f00; --a:#f00; color:#f00; }
+body.night-mode #lumi-video { filter: sepia(100%) saturate(500%) hue-rotate(-50deg) brightness(0.6); opacity:0.7; }
+body.night-mode .cross { background:#f00 !important; }
+body.night-mode #progress-bar { background:#f00; box-shadow:0 0 15px #f00; }
+body.night-mode #reticle { border-color: rgba(255,0,0,0.4); }
+
+#ar-canvas { position:fixed; inset:0; z-index:5; opacity:0; transition:opacity 2s; pointer-events:none; }
+#lumi-video { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; opacity:0.3; filter: grayscale(1); }
+
+/* モード選択画面 */
+#boot-screen { position:fixed; inset:0; z-index:200; display:flex; flex-direction:column; background:#000; transition:1s ease; }
+.mode-select { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border:1px solid rgba(0,255,255,0.1); cursor:pointer; }
+.mode-title { font-size:28px; font-weight:bold; letter-spacing:6px; margin-bottom:10px; }
+.mode-desc { font-size:10px; opacity:0.5; letter-spacing:2px; }
+
+/* 照準 */
+#reticle { position:fixed; inset:0; margin:auto; width:44px; height:44px; border:1px solid rgba(0,255,255,0.2); border-radius:50%; z-index:60; opacity:0; transition:0.5s; }
+.cross { position:absolute; background:var(--c); opacity:0.8; }
+.v { width:1px; height:18px; left:21.5px; } .h { width:18px; height:1px; top:21.5px; }
+.t { top:-25px; } .b { bottom:-25px; } .l { left:-25px; } .r { right:-25px; }
+
+/* メインHUD */
+#hud-overlay { position:fixed; inset:0; z-index:50; display:none; background:radial-gradient(circle, transparent 20%, rgba(0,5,10,0.8)); }
+#console { position:fixed; top:30px; left:20px; width:300px; height:160px; font-size:10px; overflow:hidden; line-height:1.4; pointer-events:none; }
+#status-panel { position:fixed; bottom:120px; width:100%; text-align:center; pointer-events:none; }
+#sqi-val { font-size:56px; font-weight:bold; text-shadow:0 0 20px var(--c); }
+#progress-bar { position:fixed; bottom:0; height:3px; background:var(--c); width:0%; transition:0.1s; box-shadow:0 0 10px var(--c); }
+
+/* キャリブレーション設定パネル（最前面へ） */
+#calib-panel { 
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); 
+    background:var(--panel); padding:40px; border:2px solid var(--c); 
+    text-align:center; z-index:300; display:none; 
+    box-shadow: 0 0 50px rgba(0,0,0,1); min-width:280px;
+}
+#calib-panel button { 
+    display:block; width:100%; padding:20px; margin-top:30px;
+    font-size:18px; font-weight:bold; cursor:pointer; 
+    background:var(--c); color:#000; border:none; 
+    border-radius:4px; box-shadow: 0 0 15px var(--c);
+}
+#calib-panel button:active { transform: scale(0.98); opacity:0.8; }
+
+#tilt-warning { color:#f33; font-weight:bold; margin-top:20px; opacity:0; transition:0.3s; font-size:14px; }
+#mode-label { margin-bottom:15px; font-size:16px; letter-spacing:4px; color:var(--a); font-weight:bold;}
+#start-delay { width:80px; height:30px; font-size:18px; margin-left:10px; background:#111; border:1px solid var(--c); color:var(--c); text-align:center; font-family:inherit; }
+
+/* 下部シミュレーター */
+#ar-controls { position:fixed; bottom:40px; left:50%; transform:translateX(-50%); width:85%; max-width:400px; z-index:110; display:none; background:rgba(0,10,15,0.85); padding:20px; border-radius:4px; border:1px solid var(--c); text-align:center; backdrop-filter: blur(5px); }
+input[type=range] { width:100%; cursor:pointer; accent-color:var(--c); }
+</style>
+</head>
+<body>
+
+<video id="lumi-video" autoplay playsinline muted></video>
+<canvas id="lumi-canvas" style="display:none;"></canvas>
+<canvas id="ar-canvas"></canvas>
+
+<div id="boot-screen">
+    <div class="mode-select" onclick="openCalibration('NORMAL')">
+        <div class="mode-title">STANDARD</div>
+        <div class="mode-desc">PHOTOMETRIC ANALYSIS // CYAN</div>
+    </div>
+    <div class="mode-select" onclick="openCalibration('NIGHT')" style="border-top:1px solid rgba(0,255,255,0.1);">
+        <div class="mode-title" style="color:#f00">NIGHT VISION</div>
+        <div class="mode-desc" style="color:#f00">TACTICAL RED // DARK ADAPTATION</div>
+    </div>
+</div>
+
+<div id="calib-panel">
+    <div id="mode-label">MODE: --</div>
+    <div style="font-size:13px; line-height:1.6; margin-bottom:20px;">
+        天頂（真上）に向けて固定し、<br>下のボタンを押してください。
+    </div>
+    <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:4px;">
+        <label style="font-size:12px; letter-spacing:1px;">START DELAY (SEC):
+        <input type="number" id="start-delay" value="3" min="0" max="10">
+        </label>
+    </div>
+    <button onclick="startCalibration()">ENGAGE SYSTEM</button>
+    <div id="tilt-warning">!! TILT WARNING: KEEP ZENITH !!</div>
+</div>
+
+<div id="reticle">
+    <div class="cross v t"></div><div class="cross v b"></div>
+    <div class="cross h l"></div><div class="cross h r"></div>
+</div>
+
+<div id="hud-overlay">
+    <div id="console"></div>
+    <div id="status-panel">
+        <div id="sqi-val">00.0</div>
+        <div id="status-msg" style="font-size:12px; letter-spacing:4px; margin-top:10px;">STANDBY</div>
+        <div id="tilt-display" style="font-size:10px; margin-top:6px; opacity:0.6;">Tilt: 0°</div>
+    </div>
+    <div id="progress-bar"></div>
+</div>
+
+<div id="ar-controls">
+    <div style="font-size:11px; margin-bottom:12px; letter-spacing:2px; opacity:0.8;">ENVIRONMENT SIMULATOR</div>
+    <input type="range" id="bortle-slider" min="1" max="9" step="0.1">
+    <div id="slider-label" style="font-size:16px; margin-top:8px; font-weight:bold;">BORTLE: --</div>
+</div>
+
+<script>
+let CURRENT_MODE='NORMAL';
+window.NEXUS_DATA={sqi:0,bortle:0,stars:0,mean:0,stddev:0,rank:""};
+let orient={b:-90,g:0,h:0};
+
+window.addEventListener('deviceorientation', e => {
+    orient.b = e.beta; orient.g = e.gamma; orient.h = e.alpha;
+});
+
+const Core={
+    SAMPLE_W:64, SAMPLE_H:48, lastMean:0, stableCount:0, filteredMean:null,
+    prevStarsMap:[], prevStarsMap2:[],
+    toLinear(v){ v/=255; return (v<=0.04045)?v/12.92:Math.pow((v+0.055)/1.055,2.4); },
+    isNear(a,b,w=64){ const dx=(a%w)-(b%w); const dy=Math.floor(a/w)-Math.floor(b/w); return (dx*dx+dy*dy)<=2; },
+    analyze(video,canvas){
+        if(video.readyState<2) return null;
+        const tilt=Math.abs(orient.b+90);
+        const ctx=canvas.getContext('2d');
+        canvas.width=this.SAMPLE_W; canvas.height=this.SAMPLE_H;
+        ctx.drawImage(video,0,0,this.SAMPLE_W,this.SAMPLE_H);
+        const data=ctx.getImageData(0,0,this.SAMPLE_W,this.SAMPLE_H).data;
+        const n=this.SAMPLE_W*this.SAMPLE_H; const yValues=new Float32Array(n);
+        let blueSum=0,rSum=0,gSum=0,maxPx=0; let starMap=[];
+        for(let i=0,j=0;i<data.length;i+=4,j++){
+            const r=this.toLinear(data[i]),g=this.toLinear(data[i+1]),b=this.toLinear(data[i+2]);
+            yValues[j]=(0.2126*r+0.7152*g+0.0722*b)*255;
+            blueSum+=b/(r+g+b+0.0001); rSum+=r; gSum+=g;
+            maxPx=Math.max(maxPx,data[i],data[i+1],data[i+2]);
+        }
+        if(maxPx>253) return {error:"OVER_EXPOSED", tilt};
+        const sorted=Array.from(yValues).sort((a,b)=>a-b);
+        const median=sorted[Math.floor(n/2)];
+        let vSum=0; for(let i=0;i<n;i++) vSum+=(yValues[i]-median)**2;
+        const stddev=Math.sqrt(vSum/n);
+        const snr=20*Math.log10((Math.log10(median+1)/Math.log10(256)+0.01)/(stddev+1.5));
+        const thr=median+stddev*2.5;
+        for(let i=0;i<n;i++) if(yValues[i]>thr && yValues[i]>median*1.2) starMap.push(i);
+        const persistent=starMap.filter(p=>this.prevStarsMap.some(q=>this.isNear(p,q)) && this.prevStarsMap2.some(q=>this.isNear(p,q)));
+        const stars=persistent.length;
+        this.prevStarsMap2=[...this.prevStarsMap]; this.prevStarsMap=[...starMap];
+        this.filteredMean=this.filteredMean?this.filteredMean*0.7+median*0.3:median;
+        const starScore=50*(1-Math.exp(-(stars/(stddev+1))/5));
+        const realtimeSQI=(snr*0.5)+(starScore*0.5)-(Math.log10(stddev+1)*5);
+        return { mean:this.filteredMean,stddev,snr,stars,blue:blueSum/n,avgRG:(rSum+0.001)/(gSum+0.001),realtimeSQI,tilt};
+    }
+};
+
+function getJulianDate(date){ return date.getTime()/86400000 + 2440587.5; }
+function getMoonCoords(date){
+    const d=getJulianDate(date)-2451545.0,L=(218.316+13.176396*d)%360,M=(134.963+13.064993*d)%360,F=(93.272+13.229350*d)%360;
+    const Mr=M*Math.PI/180, Fr=F*Math.PI/180;
+    const lon=L+6.289*Math.sin(Mr), lat=5.128*Math.sin(Fr), e=(23.439-0.0000004*d)*Math.PI/180;
+    const lonR=lon*Math.PI/180, latR=lat*Math.PI/180;
+    const x=Math.cos(lonR)*Math.cos(latR),y=Math.sin(lonR)*Math.cos(latR)*Math.cos(e)-Math.sin(latR)*Math.sin(e),z=Math.sin(lonR)*Math.cos(latR)*Math.sin(e)+Math.cos(latR)*Math.cos(e);
+    return { ra:Math.atan2(y,x), dec:Math.asin(z) };
+}
+function getMoonAlt(lat,lon){ const now=new Date(); const d=getJulianDate(now)-2451545.0; const {ra,dec}=getMoonCoords(now); const lst=((280.46061837+360.98564736629*d)+lon)%360*Math.PI/180; const ha=lst-ra; const latR=lat*Math.PI/180; return Math.asin(Math.sin(dec)*Math.sin(latR)+Math.cos(dec)*Math.cos(latR)*Math.cos(ha))*180/Math.PI; }
+function getMoonPenaltyReal(lat,lon){ const alt=getMoonAlt(lat,lon); if(alt<0) return 0; const age=(getJulianDate(new Date())-2451550.1)%29.530588853; const lum=Math.pow((1-Math.cos(age/29.53*2*Math.PI))/2,1.8); const att=Math.exp(-0.25*(1/Math.cos((90-alt)*Math.PI/180))); return lum*att*4.0; }
+
+function addLog(msg){ const c=document.getElementById('console'); c.innerHTML+=`> ${msg}<br>`; c.scrollTop=c.scrollHeight; if(c.childNodes.length>24) c.removeChild(c.firstChild); }
+
+let calibHistory=[],calibLoop=null;
+
+function openCalibration(mode){
+    CURRENT_MODE=mode;
+    if(mode==='NIGHT') document.body.classList.add('night-mode');
+    document.getElementById('boot-screen').style.opacity='0';
+    setTimeout(()=> {
+        document.getElementById('boot-screen').style.display='none';
+        document.getElementById('calib-panel').style.display='block';
+    }, 800);
+    document.getElementById('mode-label').innerText=`MODE: ${mode}`;
+}
+
+async function startCalibration(){
+    if(typeof DeviceOrientationEvent.requestPermission === 'function'){
+        try { await DeviceOrientationEvent.requestPermission(); } catch(e) {}
+    }
+    document.getElementById('calib-panel').style.display='none';
+    try{
+        const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+        document.getElementById("lumi-video").srcObject=stream;
+        document.getElementById('hud-overlay').style.display='block';
+        document.getElementById('reticle').style.opacity='1';
+    }catch(e){ addLog("CRITICAL: CAMERA LINK FAILED."); return; }
+
+    const delaySec=parseFloat(document.getElementById('start-delay').value)||0;
+    if(delaySec>0) addLog(`PRO MODE: STARTING IN ${delaySec}s...`);
+    setTimeout(runCalibration, delaySec*1000);
+}
+
+function runCalibration(){
+    calibHistory=[]; Core.stableCount=0; Core.lastMean=0;
+    if(calibLoop) clearInterval(calibLoop);
+    addLog("CALIBRATION ENGAGED.");
+    document.getElementById('status-msg').innerText='ANALYZING...';
+
+    calibLoop=setInterval(()=>{
+        const res=Core.analyze(document.getElementById("lumi-video"), document.getElementById("lumi-canvas"));
+        if(!res) return;
+        document.getElementById('tilt-display').innerText=`Tilt: ${res.tilt.toFixed(1)}°`;
+        if(res.tilt>35) document.getElementById('tilt-warning').style.opacity='1';
+        else document.getElementById('tilt-warning').style.opacity='0';
+        if(res.error) { return; }
+
+        const diff=Math.abs(res.mean - Core.lastMean);
+        if(diff < res.stddev * 0.5) Core.stableCount++; else Core.stableCount=0;
+        Core.lastMean=res.mean;
+        if(Core.stableCount>4 && res.snr>-10){ 
+            calibHistory.push(res);
+            addLog(`SAMP[${calibHistory.length}/30] SNR:${res.snr.toFixed(1)}`);
+        }
+        document.getElementById("sqi-val").innerText=res.realtimeSQI.toFixed(1);
+        document.getElementById("progress-bar").style.width=(calibHistory.length/30*100)+"%";
+        if(calibHistory.length>=30){ 
+            clearInterval(calibLoop); 
+            if('vibrate' in navigator) navigator.vibrate([200,100,200]);
+            finishCalibration(calibHistory); 
+        }
+    },120);
+}
+
+function finishCalibration(h){
+    const n=h.length;
+    const final={sqi:h.reduce((a,b)=>a+b.realtimeSQI,0)/n, stars:h.reduce((a,b)=>a+b.stars,0)/n, mean:h.reduce((a,b)=>a+b.mean,0)/n, blue:h.reduce((a,b)=>a+b.blue,0)/n, rg:h.reduce((a,b)=>a+b.avgRG,0)/n};
+    const lat=34.7, lon=135.5;
+    const mPenalty=getMoonPenaltyReal(lat,lon);
+    final.sqi -= Math.pow(mPenalty,1.2)*14;
+    let b = Math.max(1, Math.min(9, 8 - (final.sqi / 15)));
+    final.bortle = b;
+    window.NEXUS_DATA = final;
+    addLog(`COMPLETE: BORTLE ${b.toFixed(1)}`);
+    document.getElementById('status-msg').innerText='OPTIMIZED';
+    setTimeout(launchAR, 2000);
+}
+
+let scene, camera, renderer, starPoints, isActive=false;
+function init3D(){
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({canvas:document.getElementById("ar-canvas"), alpha:true});
+    renderer.setSize(innerWidth, innerHeight);
+    const geo = new THREE.BufferGeometry(); let p=[];
+    for(let i=0;i<6000;i++) p.push((Math.random()-0.5)*500,(Math.random()-0.5)*500,(Math.random()-0.5)*500);
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(p,3));
+    const mat = new THREE.PointsMaterial({size:0.5, color:0x00ffff, transparent:true, opacity:0});
+    starPoints = new THREE.Points(geo, mat);
+    scene.add(starPoints);
+    requestAnimationFrame(function render(){
+        requestAnimationFrame(render);
+        if(isActive) camera.rotation.set(THREE.MathUtils.degToRad(orient.b), THREE.MathUtils.degToRad(orient.h), THREE.MathUtils.degToRad(-orient.g), 'YXZ');
+        renderer.render(scene, camera);
+    });
+}
+function launchAR(){
+    document.getElementById("hud-overlay").style.transition="2s";
+    document.getElementById("hud-overlay").style.opacity="0";
+    document.getElementById("reticle").style.opacity="0";
+    document.getElementById("ar-canvas").style.opacity="1";
+    document.getElementById("ar-controls").style.display="block";
+    const slider = document.getElementById('bortle-slider');
+    slider.value = window.NEXUS_DATA.bortle;
+    updateARScale(window.NEXUS_DATA.bortle);
+    slider.oninput = (e) => updateARScale(parseFloat(e.target.value));
+    if(CURRENT_MODE==='NIGHT') starPoints.material.color.setHex(0xff0000);
+    starPoints.material.opacity = 1;
+    isActive = true;
+}
+function updateARScale(b) {
+    document.getElementById('slider-label').innerText = `BORTLE: ${b.toFixed(1)}`;
+    starPoints.material.size = (10 - b) * 0.12;
+}
+init3D();
+</script>
+</body>
+</html>
