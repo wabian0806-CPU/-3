@@ -2,54 +2,84 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
+    <meta name="robots" content="noindex, nofollow">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>NEXUS v23 - RELAXED</title>
+    <title>NEXUS v23 - 覚醒</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <style>
-        :root { --c:#0ff; --g:#0f8; --a:#fc0; --bg:#000; }
-        body { margin:0; overflow:hidden; background:#000; color:var(--c); font-family: monospace; touch-action:none; }
+        :root { --c:#0ff; --g:#0f8; --a:#fc0; --r:#f33; --bg:#000; }
+        body { margin:0; overflow:hidden; background:#000; color:var(--c); font-family: "Hiragino Sans", "Meiryo", monospace; touch-action:none; }
         
-        #ar-canvas { position:fixed; inset:0; z-index:10; }
+        #ar-canvas { position:fixed; inset:0; z-index:10; opacity:0; transition: opacity 1s; }
         #vfx-layer { position:fixed; inset:0; z-index:25; pointer-events:none; 
-            background: repeating-linear-gradient(0deg, rgba(0,255,255,0.03) 0px, transparent 1px, transparent 3px); }
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 255, 255, 0.03) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
+            background-size: 100% 4px, 3px 100%; }
 
+        /* 演算マトリクス（背面を流れるログ） */
         #calc-matrix {
             position: fixed; inset: 0; z-index: 15;
-            font-size: 9px; color: rgba(0, 255, 128, 0.2);
-            pointer-events: none; overflow: hidden; padding: 10px;
+            font-size: 10px; color: rgba(0, 255, 128, 0.1);
+            pointer-events: none; overflow: hidden;
+            line-height: 1.1; white-space: nowrap; font-family: monospace; padding: 10px;
         }
-        .matrix-line { animation: slideUp 1s linear forwards; }
-        @keyframes slideUp { from { transform: translateY(100vh); } to { transform: translateY(-10vh); } }
+        .matrix-line { animation: slideUp 1s linear forwards; opacity: 0.8; }
+        @keyframes slideUp { from { transform: translateY(100vh); } to { transform: translateY(-20vh); } }
 
+        /* 起動画面（AR展開まで表示） */
         #boot-overlay { 
             position:fixed; inset:0; z-index:100; 
-            background:rgba(0,10,20,0.98); padding:25px; 
+            background:rgba(0,5,10,0.98); padding:30px; 
             display:flex; flex-direction:column; align-items:center; justify-content:center; 
+            transition: opacity 1s, visibility 1s;
         }
-        #console { width:100%; flex:1; overflow:auto; font-size:11px; margin-bottom:20px; border:1px solid rgba(0,255,255,0.2); padding:10px; background:rgba(0,0,0,0.5); }
-        .log { margin-bottom:4px; border-left: 2px solid var(--c); padding-left: 8px; }
-        #start-btn { width:90%; padding:20px; background:rgba(0,255,128,0.1); border:2px solid var(--g); color:var(--g); font-size:18px; font-weight:bold; cursor:pointer; }
+        #boot-overlay.hide { opacity:0; visibility:hidden; }
 
-        #calib-hud { position:fixed; inset:0; z-index:50; display:none; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
-        .reticle-container { position:relative; width:260px; height:260px; }
+        #console { width:100%; flex:1; overflow:auto; font-size:11px; margin-bottom:25px; border:1px solid rgba(0,255,255,0.2); padding:15px; background:rgba(0,0,0,0.6); box-shadow: inset 0 0 20px rgba(0,255,255,0.1); }
+        .log { margin-bottom:5px; border-left: 2px solid var(--c); padding-left: 10px; animation: fadeIn 0.3s; }
+        .log.ok { color:var(--g); border-left-color:var(--g); }
+        .log.warn { color:var(--a); border-left-color:var(--a); }
+        @keyframes fadeIn { from { opacity:0; transform:translateX(-10px); } to { opacity:1; transform:translateX(0); } }
+
+        #start-btn { 
+            width:90%; padding:25px; background:rgba(0,255,128,0.05); border:2px solid var(--g); 
+            color:var(--g); font-size:20px; font-weight:bold; cursor:pointer; letter-spacing:6px;
+            box-shadow: 0 0 15px rgba(0,255,128,0.2); transition: all 0.2s;
+        }
+        #start-btn:active { transform: scale(0.95); background:rgba(0,255,128,0.2); }
+
+        /* HUD（マニュアル・エンゲージ） */
+        #calib-hud { position:fixed; inset:0; z-index:50; display:none; flex-direction:column; align-items:center; justify-content:space-between; padding:80px 20px; pointer-events:none; }
+        .reticle-container { position:relative; width:220px; height:220px; }
         .zenith-reticle { 
             position:absolute; inset:0; border:1px dashed rgba(0,255,255,0.2); border-radius:50%; 
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
-        .zenith-reticle.active { border:2px solid var(--g); transform:scale(1.1); box-shadow: 0 0 40px rgba(0,255,128,0.4); }
+        .zenith-reticle.active { border:2px solid var(--g); transform:scale(1.1); box-shadow: 0 0 40px rgba(0,255,128,0.3); }
 
         #guide-dot {
-            position:absolute; width:24px; height:24px; background:var(--a); border-radius:50%;
-            left:50%; top:50%; margin:-12px 0 0 -12px;
+            position:absolute; width:22px; height:22px; background:var(--a); border-radius:50%;
+            left:50%; top:50%; margin:-11px 0 0 -11px;
             box-shadow: 0 0 20px var(--a); will-change: transform;
         }
 
-        #status-display { text-align:center; margin-top:30px; min-height:80px; }
-        #main-msg { font-size:26px; color:var(--a); font-weight:bold; letter-spacing:2px; }
-        #sub-msg { font-size:12px; color:var(--c); opacity:0.7; }
+        #ui-lower { width:100%; display:flex; flex-direction:column; align-items:center; pointer-events:auto; }
+        #status-display { text-align:center; min-height:80px; margin-bottom:10px; }
+        #main-msg { font-size:26px; color:var(--a); font-weight:bold; text-shadow:0 0 10px rgba(255,204,0,0.5); letter-spacing:2px; }
+        #sub-msg { font-size:12px; color:var(--c); opacity:0.8; letter-spacing:1px; }
         
-        .progress-box { width:240px; height:3px; background:rgba(0,255,255,0.1); margin-top:20px; }
-        #bar { height:100%; background:var(--g); width:0%; transition: width 0.1s; }
+        #engage-btn { 
+            width:80%; padding:25px; background:rgba(255,204,0,0.05); border:2px solid var(--a); 
+            color:var(--a); font-size:22px; font-weight:bold; cursor:pointer; 
+            letter-spacing:4px; box-shadow: 0 0 20px rgba(255,204,0,0.15); transition: all 0.2s;
+        }
+        #engage-btn:active { transform: scale(0.95); background:rgba(255,204,0,0.2); }
+        #engage-btn.analysing { pointer-events:none; background:rgba(255,51,51,0.1); border-color:var(--r); color:var(--r); animation: pulseWarn 0.8s infinite; }
+
+        .progress-box { width:260px; height:3px; background:rgba(0,255,255,0.1); margin-top:25px; border:1px solid rgba(0,255,255,0.2); overflow:hidden; }
+        #bar { height:100%; background:var(--g); width:0%; transition: width 0.1s; box-shadow:0 0 15px var(--g); }
+
+        @keyframes pulseWarn { 0% { box-shadow:0 0 10px var(--r); } 50% { box-shadow:0 0 25px var(--r); } 100% { box-shadow:0 0 10px var(--r); } }
     </style>
 </head>
 <body>
@@ -59,9 +89,9 @@
 <div id="calc-matrix"></div>
 
 <div id="boot-overlay">
-    <div style="font-size:22px; letter-spacing:10px; margin-bottom:20px; font-weight:bold;">NEXUS v23</div>
+    <div style="font-size:24px; letter-spacing:10px; margin-bottom:20px; font-weight:bold; color:var(--c); text-shadow: 0 0 10px var(--c);">NEXUS v23</div>
     <div id="console"></div>
-    <button id="start-btn">CORE START</button>
+    <button id="start-btn">システム初期化開始</button>
 </div>
 
 <div id="calib-hud">
@@ -69,15 +99,19 @@
         <div id="reticle" class="zenith-reticle"></div>
         <div id="guide-dot"></div>
     </div>
-    <div id="status-display">
-        <div id="main-msg">STANDBY</div>
-        <div id="sub-msg">Awaiting Sky Alignment</div>
+    <div id="ui-lower">
+        <div id="status-display">
+            <div id="main-msg">STANDBY</div>
+            <div id="sub-msg">天頂へ向け「解析開始」を押してください</div>
+        </div>
+        <button id="engage-btn">解析開始</button>
+        <div class="progress-box"><div id="bar"></div></div>
     </div>
-    <div class="progress-box"><div id="bar"></div></div>
 </div>
 
 <script>
-/** * --- NEXUS CORE (User-Friendly Adjusted) ---
+/**
+ * --- NEXUS コア・エンジン (補正ロジック) ---
  */
 const Core = {
     bias: { x: 0, y: 0 },
@@ -85,7 +119,7 @@ const Core = {
     trueHeading: 0,
     currentPos: { x: 0, y: 0 },
     
-    // 1. 輝度サンプリング (Median)
+    // 輝度サンプリング
     getLumi: (data) => {
         let v = [];
         for(let i=0; i<data.length; i+=4) {
@@ -97,35 +131,37 @@ const Core = {
         return v[Math.floor(v.length/2)];
     },
 
-    // 2. ドリフト補正 (Static Bias Removal)
+    // ドリフト補正
     applyDrift: (b, g) => {
         if(Core.last.b === null) { Core.last = {b,g}; return {b,g}; }
         const dB = b - Core.last.b, dG = g - Core.last.g;
-        // 静止判定を少し甘くして補正を効きやすくする
-        if(Math.abs(dB) < 0.05) Core.bias.y += dB * 0.03;
-        if(Math.abs(dG) < 0.05) Core.bias.x += dG * 0.03;
+        if(Math.abs(dB) < 0.1) Core.bias.y += dB * 0.05;
+        if(Math.abs(dG) < 0.1) Core.bias.x += dG * 0.05;
         Core.last = {b,g};
         return { b: b - Core.bias.y, g: g - Core.bias.x };
     },
 
-    // 3. 地磁気フュージョン
-    fuseHeading: (mag, k=0.92) => { // コンパスの比率を少し上げて追従性UP
+    // 地磁気フュージョン
+    fuseHeading: (mag, k=0.92) => {
         let diff = mag - Core.trueHeading;
         if(diff > 180) diff -= 360; if(diff < -180) diff += 360;
         Core.trueHeading += diff * (1 - k);
         return Core.trueHeading;
     },
 
-    // 4. スムージング (Lerp - 反応速度UP版)
-    smooth: (cur, tar, f=0.25) => cur + (tar - cur) * f // 0.15 -> 0.25へ
+    // スムージング
+    smooth: (cur, tar, f=0.3) => cur + (tar - cur) * f 
 };
 
-let scene, camera, renderer, stars, zenithOK = false, isCalib = false, hasVib = false, magHead = 0;
+/**
+ * --- UI & システム・シーケンス ---
+ */
+let scene, camera, renderer, stars, zenithOK = false, isCalib = false, hasVib = false, magHead = 0, videoStream = null;
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
 function log(t, c="") {
     const d = document.createElement("div"); d.className = "log "+c; d.textContent = ">> "+t;
-    document.getElementById("console").appendChild(d);
+    const con = document.getElementById("console"); con.appendChild(d); con.scrollTop = con.scrollHeight;
 }
 
 function playPing() {
@@ -148,15 +184,20 @@ function initAR() {
     for(let i=0; i<3000; i++) pos.push((Math.random()-0.5)*200, (Math.random()-0.5)*200, (Math.random()-0.5)*200);
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     stars = new THREE.Points(geo, new THREE.PointsMaterial({color:0xffffff, size:0.25, opacity:0, transparent:true}));
-    scene.add(stars); animate();
+    scene.add(stars);
+    renderer.render(scene, camera); // 初期描画
 }
 
 function animate() {
+    if(!isCalib) return; // 解析完了までは描画ループを回さない（高負荷時対策）
     requestAnimationFrame(animate);
     const dot = document.getElementById("guide-dot");
     if(dot) {
+        const tx = Math.max(-130, Math.min(130, Core.lastComp.g * 2.5));
+        const ty = Math.max(-130, Math.min(130, (Core.lastComp.b + 90) * 2.5));
+        Core.currentPos.x = Core.smooth(Core.currentPos.x, tx);
+        Core.currentPos.y = Core.smooth(Core.currentPos.y, ty);
         dot.style.transform = `translate(${Core.currentPos.x}px, ${Core.currentPos.y}px)`;
-        dot.style.background = zenithOK ? "var(--g)" : "var(--a)";
     }
     renderer.render(scene, camera);
 }
@@ -165,86 +206,153 @@ window.addEventListener('deviceorientationabsolute', (e) => {
     magHead = e.webkitCompassHeading || (360 - e.alpha);
 }, true);
 
+// 解析完了までカメラは静止
+Core.lastComp = {b: -90, g: 0};
 function onOrientation(e) {
     if(e.alpha === null) return;
     const comp = Core.applyDrift(e.beta, e.gamma);
     const head = Core.fuseHeading(magHead);
+    Core.lastComp = comp; // animate()用
     
-    camera.rotation.set(THREE.MathUtils.degToRad(comp.b), THREE.MathUtils.degToRad(360 - head), THREE.MathUtils.degToRad(-comp.g), 'YXZ');
+    // 【演出】AR展開までカメラは回転させない
+    if(document.getElementById("boot-overlay").classList.contains("hide")) {
+        camera.rotation.set(THREE.MathUtils.degToRad(comp.b), THREE.MathUtils.degToRad(360 - head), THREE.MathUtils.degToRad(-comp.g), 'YXZ');
+    }
 
-    // --- センター移動のストレス解消 (感度UP) ---
-    const tx = Math.max(-130, Math.min(130, comp.g * 2.2));
-    const ty = Math.max(-130, Math.min(130, (comp.b + 90) * 2.2));
-    Core.currentPos.x = Core.smooth(Core.currentPos.x, tx);
-    Core.currentPos.y = Core.smooth(Core.currentPos.y, ty);
-
-    // --- 天頂判定の「適当」化 (判定を50度まで拡大) ---
+    // 天頂判定（演出用・ユル判定）
     const bErr = Math.abs(comp.b + 90), gErr = Math.abs(comp.g);
-    zenithOK = (Math.sqrt(bErr**2 + gErr**2) < 50); // 30度から50度へ大幅緩和
+    zenithOK = (Math.sqrt(bErr**2 + gErr**2) < 45); 
     
     if(!isCalib) {
-        const ret = document.getElementById("reticle"), main = document.getElementById("main-msg");
+        const ret = document.getElementById("reticle"), main = document.getElementById("main-msg"), sub = document.getElementById("sub-msg");
         if(zenithOK) {
-            if(!hasVib) { playPing(); if(!isIOS && navigator.vibrate) navigator.vibrate(40); hasVib = true; }
-            ret.classList.add("active"); main.textContent = "READY"; main.style.color = "var(--g)";
+            ret.classList.add("active"); main.textContent = "CAPTURE READY"; main.style.color = "var(--g)";
+            sub.textContent = `磁気フュージョン同期: ${Math.round(head)}°`;
         } else {
-            hasVib = false; ret.classList.remove("active");
-            main.textContent = "SCANNING"; main.style.color = "var(--a)";
+            ret.classList.remove("active"); main.textContent = "SEARCHING"; main.style.color = "var(--a)";
+            sub.textContent = "デバイスを天頂へ向けてください";
         }
     }
 }
 
 document.getElementById('start-btn').addEventListener('click', async () => {
-    log("システム初期化中...");
+    log("NEXUS コア・カーネルロード開始...", "ok");
+    log("センサー・アクセスの許可を待機中...");
+    
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         const res = await DeviceOrientationEvent.requestPermission();
-        if (res === 'granted') window.addEventListener("deviceorientation", onOrientation, true);
-    } else { window.addEventListener("deviceorientation", onOrientation, true); }
+        if (res === 'granted') {
+            window.addEventListener("deviceorientation", onOrientation, true);
+            log("DeviceOrientation 認証：成功", "ok");
+        }
+    } else { 
+        window.addEventListener("deviceorientation", onOrientation, true);
+        log("DeviceOrientation 認証：不要", "warn");
+    }
+
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment"}});
-        log("光学同期：完了", "ok"); startCalibration(stream);
-    } catch (e) { log("エラー: " + e.message, "warn"); }
+        log("光学デバイス初期化...");
+        videoStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment"}});
+        log("カメラ同期：完了", "ok");
+        log("ハードウェア結合：成功", "ok");
+        
+        // --- バックグラウンド起動シーケンスログ (AR切り替わりまで流す) ---
+        const intervalLog = setInterval(() => {
+            if(document.getElementById("boot-overlay").classList.contains("hide")) { clearInterval(intervalLog); return; }
+            log(`[CORE] ${new Date().toISOString().slice(11,19)} >> DriftBias calculation... [${Core.bias.x.toFixed(2)},${Core.bias.y.toFixed(2)}]`);
+        }, 1200);
+
+        log("システム・スタンバイ。HUD展開...");
+        playPing();
+        setTimeout(() => {
+            initAR(); // 背面でAR描画準備
+            document.getElementById("boot-overlay").style.background = "rgba(0,0,0,0.85)"; // HUDを見えやすくする
+            document.getElementById("calib-hud").style.display = "flex";
+        }, 800);
+
+    } catch (e) { log("初期化エラー: " + e.message, "warn"); }
 });
 
-function startCalibration(stream) {
-    document.getElementById("boot-overlay").style.display = "none";
-    document.getElementById("calib-hud").style.display = "flex";
-    const v = document.createElement("video"); v.srcObject = stream; v.play();
+// 【パパさんの要望】マニュアル・エンゲージ解析
+document.getElementById('engage-btn').addEventListener('click', () => {
+    if(isCalib) return;
+    isCalib = true;
+    
+    const engageBtn = document.getElementById("engage-btn");
+    engageBtn.classList.add("analysing");
+    engageBtn.textContent = "解析中...";
+    document.getElementById("main-msg").textContent = "ANALYZING";
+    document.getElementById("status-display").style.opacity = "0.5";
+    
+    const v = document.createElement("video"); v.srcObject = videoStream; v.play();
     const c = document.createElement("canvas"); const ctx = c.getContext("2d");
     const matrix = document.getElementById("calc-matrix");
     let samples = [];
 
     const loop = setInterval(() => {
-        if(!zenithOK) return;
-        isCalib = true;
-        document.getElementById("main-msg").textContent = "ANALYZING";
         c.width = 40; c.height = 40; ctx.drawImage(v, 0, 0, 40, 40);
         const lumi = Core.getLumi(ctx.getImageData(0,0,40,40).data);
         samples.push(lumi);
         document.getElementById("bar").style.width = samples.length + "%";
 
-        const line = document.createElement("div"); line.className = "matrix-line";
-        line.textContent = `B:[${Core.bias.x.toFixed(2)},${Core.bias.y.toFixed(2)}] H:${Math.round(Core.trueHeading)}° LUM:${lumi.toFixed(1)}`;
-        matrix.appendChild(line);
-        if(matrix.childNodes.length > 40) matrix.removeChild(matrix.firstChild);
+        // --- 【要望】狂気の演算マトリクス垂れ流し演出 ---
+        const comp = Core.lastComp;
+        const matrixLines = [
+            `> ∫[t]Lumi(t)dt ≈ ∑L:${lumi.toFixed(0)} N:${samples.length} / Median_Val:${lumi.toFixed(1)}`,
+            `> bias[X:${Core.bias.x.toFixed(3)},Y:${Core.bias.y.toFixed(3)}]`,
+            `> ΔOrientation(b:${comp.b.toFixed(2)},g:${comp.g.toFixed(2)}) >> q_comp = R_drift * q_raw`,
+            `> MagFusionHeading:[${magHeading.toFixed(1)}°] * (1-k) + Gyro[${(360-Core.trueHeading).toFixed(1)}°] * k`,
+            `> H_true = ${Math.round(Core.trueHeading)}° >> q_true = q_head * q_comp`
+        ];
+        
+        matrixLines.forEach(l => {
+            const lineEl = document.createElement("div"); lineEl.className = "matrix-line";
+            lineEl.textContent = l; matrix.appendChild(lineEl);
+        });
 
-        if(samples.length >= 100) {
+        if(matrix.childNodes.length > 50) while(matrix.childNodes.length > 40) matrix.removeChild(matrix.firstChild);
+
+        if(samples.length >= 80) { // 約3秒
             clearInterval(loop);
-            finalize(samples.reduce((a,b)=>a+b)/samples.length);
+            const avg = samples.reduce((a,b)=>a+b)/samples.length;
+            finalize(avg);
         }
     }, 45);
-}
+});
 
 function finalize(lumi) {
-    document.getElementById("main-msg").textContent = "COMPLETE";
+    document.getElementById("main-msg").textContent = "SYNCHRONIZED";
+    document.getElementById("main-msg").style.color = "var(--c)";
+    
+    // 【演出】マトリクスをフェードアウト
+    document.getElementById("calc-matrix").style.transition = "opacity 0.8s";
+    document.getElementById("calc-matrix").style.opacity = "0.2";
+    
     let op = 0; const targetAlpha = Math.max(0.3, 1 - (lumi/180));
+    
+    // AR空間を展開 (フェードイン)
+    document.getElementById("ar-canvas").style.opacity = "1";
+    
     const reveal = setInterval(() => {
-        op += 0.05; stars.material.opacity = op * targetAlpha;
-        if(op >= 1) { clearInterval(reveal); setTimeout(() => { document.getElementById("calib-hud").style.opacity = "0"; }, 800); }
-    }, 50);
+        op += 0.1; stars.material.opacity = op * targetAlpha;
+        if(op >= 1) { 
+            clearInterval(reveal); 
+            
+            // 全演出のフェードアウトとARへの移行
+            document.getElementById("boot-overlay").classList.add("hide"); // 起動画面を消す
+            document.getElementById("calib-hud").style.transition = "opacity 0.8s";
+            document.getElementById("calib-hud").style.opacity = "0"; 
+            
+            setTimeout(() => { 
+                document.getElementById("calib-hud").style.display = "none";
+                log("全システム正常展開。観測を開始します。", "ok");
+                animate(); // 描画ループ開始
+            }, 800);
+        }
+    }, 40);
 }
 
-window.onload = () => { initAR(); log("NEXUS v23 SYSTEM STANDBY."); };
+window.onload = () => { initAR(); log("NEXUS システム待機中..."); };
 </script>
 </body>
 </html>
