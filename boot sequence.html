@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ASTRONEX v3.9 - ZENITH:ZERO [CORE_SYNC]</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root { --c:#0ff; --g:#0f8; --a:#fc0; --r:#f33; --panel: rgba(0,8,15,0.95); }
+body { margin:0; overflow:hidden; background:#000; color:var(--c); font-family:'Share Tech Mono', monospace; user-select:none; }
+body.night-mode { --c:#f00; --g:#f00; --a:#f00; color:#f00; }
+
+/* 背景カメラ */
+#lumi-video { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; opacity:0.25; filter: grayscale(1) contrast(1.2); }
+body.night-mode #lumi-video { opacity:0.15; filter:grayscale(0.8) contrast(1.0); }
+
+#matrix-canvas { position:fixed; inset:0; z-index:2; opacity:0.6; pointer-events:none; }
+body.night-mode #matrix-canvas { opacity:0.4; }
+
+/* UI Layers */
+#boot-screen { position:fixed; inset:0; z-index:200; display:flex; flex-direction:column; background:#000; }
+.mode-select { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border:1px solid rgba(0,255,255,0.05); cursor:pointer; }
+
+#calib-panel { position:fixed; bottom:15%; left:50%; transform:translateX(-50%); background:var(--panel); width:85%; padding:30px 20px; border:1px solid var(--c); z-index:300; display:none; text-align:center; }
+#calib-panel button { width:100%; padding:22px; margin-top:25px; background: linear-gradient(90deg, transparent, var(--c), transparent); color:#000; border:none; font-weight:bold; font-size:20px; letter-spacing:6px; }
+
+#hud-overlay { position:fixed; inset:0; z-index:100; display:none; pointer-events:none; }
+#console { position:fixed; top:20px; left:15px; width:calc(100% - 30px); height:180px; font-size:9px; overflow:hidden; line-height:1.3; opacity:0.9; }
+#status-panel { position:fixed; bottom:140px; width:100%; text-align:center; }
+#sqi-val { font-size:72px; font-weight:bold; text-shadow:0 0 30px var(--c); }
+
+/* デュアル・シンクロ・ゲージ */
+.gauge-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 280px; height: 280px; }
+.gauge-ring { fill: none; stroke-width: 3; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: 0.1s; }
+#space-ring { stroke: var(--c); stroke-dasharray: 565; stroke-dashoffset: 565; }
+#light-ring { stroke: #f0f; stroke-dasharray: 500; stroke-dashoffset: 500; }
+</style>
+</head>
+<body>
+
+<video id="lumi-video" autoplay playsinline muted></video>
+<canvas id="lumi-canvas" style="display:none;"></canvas>
+<canvas id="matrix-canvas"></canvas>
+
+<div id="boot-screen">
+    <div class="mode-select" onclick="openCalibration('NORMAL')">
+        <div style="font-size:24px; letter-spacing:8px;">STANDARD SYNC</div>
+    </div>
+    <div class="mode-select" onclick="openCalibration('NIGHT')" style="color:#f00;">
+        <div style="font-size:24px; letter-spacing:8px;">NIGHT VISION</div>
+    </div>
+</div>
+
+<div id="calib-panel">
+    <div id="mode-label">ID: ASTN_ZENITH_ULTIMATE</div>
+    <div style="font-size:11px; margin-top:10px;">ALIGN DEVICE TO ZENITH<br>INITIALIZING MULTI-SENSOR FUSION</div>
+    <button onclick="startCalibration()">ENGAGE SYNC</button>
+</div>
+
+<div id="hud-overlay">
+    <div class="gauge-container">
+        <svg width="280" height="280">
+            <circle class="gauge-ring" id="space-ring" cx="140" cy="140" r="90"></circle>
+            <circle class="gauge-ring" id="light-ring" cx="140" cy="140" r="80"></circle>
+        </svg>
+    </div>
+    <div id="console"></div>
+    <div id="status-panel">
+        <div id="sqi-val">00.0</div>
+        <div id="status-msg" style="font-size:10px; letter-spacing:4px;">WAITING FOR STABILITY...</div>
+    </div>
+</div>
+
+<script>
+// --- GLOBAL STATE ---
+let CURRENT_MODE = 'NORMAL';
+let isLocked = false;
+let isActive = false;
+let darkFrameValue = 0;
+let moonPenaltyValue = 0;
+const BUFFER_SIZE = 15;
+let spaceBuffer = [];
+let lightHistory = [];
+let lockCount = 0;
+const LOCK_REQUIRED = 12;
+
+// --- KALMAN FILTER (姿勢制御) ---
+const kalman = {
+    pitch: { x: 0, P: 1, Q: 0.005, R: 0.1 },
+    roll:  { x: 0, P: 1, Q: 0.005, R: 0.1 }
+};
+function kalmanUpdate(state, measurement) {
+    state.P += state.Q;
+    const K = state.P / (state.P + state.R);
+    state.x += K * (measurement - state.x);
+    state.P *= (1 - K);
+    return state.x;
+}
+
+// --- MATRIX RENDERER ---
+const Matrix = {
+    canvas: document.getElementById('matrix-canvas'), ctx: null, lines: [],
+    init() { this.ctx = this.canvas.getContext('2d'); this.canvas.width = window.innerWidth; this.canvas.height = window.innerHeight; },
+    push(tag, text, priority = 1) {
+        this.lines.push({ txt: `[${tag}] ${text}`, y: this.canvas.height, x: Math.random() * this.canvas.width * 0.7, alpha: 1.0, speed: priority === 2 ? 1.5 : 3.0 });
+        if(this.lines.length > 40) this.lines.shift();
+    },
+    render() {
+        this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
+        this.ctx.font = '8px "Share Tech Mono"';
+        this.ctx.fillStyle = CURRENT_MODE==='NIGHT' ? '#f00' : '#0ff';
+        this.lines.forEach(l => { l.y -= l.speed; l.alpha -= 0.01; this.ctx.globalAlpha = Math.max(0, l.alpha); this.ctx.fillText(l.txt, l.x, l.y); });
+        requestAnimationFrame(() => this.render());
+    }
+};
+
+// --- CORE PHYSICS (NEXUS v28 完全移植 + SQM改良) ---
+const Core = {
+    SAMPLE_W:64, SAMPLE_H:48, prevStarsMap:[],
+    toLinear(v){ v/=255; return (v<=0.04045)?v/12.92:Math.pow((v+0.055)/1.055,2.4); },
+    isNear(a,b,w=64){ const dx=(a%w)-(b%w), dy=Math.floor(a/w)-Math.floor(b/w); return (dx*dx + dy*dy) <= 3; },
+    analyze(video, canvas) {
+        if(video.readyState < 2) return null;
+        const ctx = canvas.getContext('2d');
+        canvas.width = this.SAMPLE_W; canvas.height = this.SAMPLE_H;
+        ctx.drawImage(video, 0, 0, this.SAMPLE_W, this.SAMPLE_H);
+        const data = ctx.getImageData(0,0,this.SAMPLE_W,this.SAMPLE_H).data;
+        
+        let lumArray = [], rT=0, gT=0, bT=0;
+        for(let i=0; i<data.length; i+=4) {
+            const r=this.toLinear(data[i]), g=this.toLinear(data[i+1]), b=this.toLinear(data[i+2]);
+            lumArray.push(0.2126*r + 0.7152*g + 0.0722*b); rT+=r; gT+=g; bT+=b;
+        }
+        const avgL = lumArray.reduce((a,b)=>a+b,0)/lumArray.length;
+        const noiseF = [...lumArray].sort((a,b)=>a-b)[Math.floor(lumArray.length * 0.05)];
+        const meanL = Math.max(0.00001, avgL - (darkFrameValue || noiseF));
+        const polIdx = (rT + 0.001) / (bT + 0.001);
+        
+        // 星検出
+        const std = Math.sqrt(lumArray.reduce((a,b)=>a + Math.pow(b - avgL, 2), 0) / lumArray.length);
+        const thr = meanL + std * 2.85;
+        let starMap = [];
+        for(let i=0; i<lumArray.length; i++) if(lumArray[i] > thr) starMap.push(i);
+        const persist = starMap.filter(p => this.prevStarsMap.some(q => this.isNear(p,q)));
+        this.prevStarsMap = [...starMap];
+        
+        const sScore = 65 * (1 - Math.exp(-persist.length / (std + 1) / 4.5));
+        let sqm = 22.0 - 2.5 * Math.log10(meanL * 1450 + 0.008);
+        sqm = sqm - (polIdx - 1.0) * 1.65 + (sScore * 0.095) - moonPenaltyValue * 1.35;
+        
+        return { sqm, raw: avgL, stars: persist.length };
+    }
+};
+
+// --- [FIX④] darkFrame キャプチャ ---
+function captureDarkFrame() {
+    const video = document.getElementById("lumi-video");
+    const canvas = document.getElementById("lumi-canvas");
+    if(video.readyState < 2) { setTimeout(captureDarkFrame, 200); return; }
+    const ctx = canvas.getContext('2d');
+    canvas.width = Core.SAMPLE_W; canvas.height = Core.SAMPLE_H;
+    ctx.drawImage(video, 0, 0, Core.SAMPLE_W, Core.SAMPLE_H);
+    const data = ctx.getImageData(0, 0, Core.SAMPLE_W, Core.SAMPLE_H).data;
+    let total = 0;
+    for(let i = 0; i < data.length; i += 4) {
+        const r = Core.toLinear(data[i]), g = Core.toLinear(data[i+1]), b = Core.toLinear(data[i+2]);
+        total += 0.2126*r + 0.7152*g + 0.0722*b;
+    }
+    darkFrameValue = total / (data.length / 4);
+    Matrix.push("DARK", `FRAME_CAP:${darkFrameValue.toFixed(5)}`, 1);
+}
+
+// --- INITIALIZATION & SYNC ---
+function openCalibration(mode) {
+    CURRENT_MODE = mode; 
+    if(mode==='NIGHT') document.body.classList.add('night-mode');
+    document.getElementById('boot-screen').style.display='none';
+    document.getElementById('calib-panel').style.display='block';
+    Matrix.init(); Matrix.render();
+}
+
+async function startCalibration() {
+    if(typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
+    document.getElementById('calib-panel').style.display='none';
+    document.getElementById('hud-overlay').style.display='block';
+    
+    const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+    document.getElementById("lumi-video").srcObject = stream;
+
+    // [FIX④] カメラ起動後にdarkFrame取得
+    setTimeout(() => { captureDarkFrame(); }, 500);
+
+    // GPS & Moon
+    if(navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+            const d = (new Date().getTime()/86400000 + 2440587.5) - 2451545.0;
+            // [FIX③] 月齢の負値防止（JS の % は負値を返すため補正）
+            const age = ((d - 2451550.1) % 29.53 + 29.53) % 29.53;
+            const lum = Math.pow((1 - Math.cos(age/29.53*2*Math.PI))/2, 2.0);
+            // [FIX⑤] 南半球でもペナルティが有効になるよう Math.abs を適用
+            moonPenaltyValue = lum * 4.8 * Math.abs(Math.sin(pos.coords.latitude * Math.PI/180));
+            Matrix.push("GPS", "LOCK_SUCCESS", 2);
+        });
+    }
+
+    // 姿勢イベント登録
+    window.addEventListener('deviceorientation', handleOrientation);
+    requestAnimationFrame(syncLoop);
+}
+
+function handleOrientation(e) {
+    if (isLocked) return;
+    const fPitch = kalmanUpdate(kalman.pitch, e.beta);
+    const fRoll  = kalmanUpdate(kalman.roll,  e.gamma);
+    let azimuth = e.alpha;
+    if(window.screen.orientation && window.screen.orientation.angle) azimuth += window.screen.orientation.angle; // angle=0（ポートレート正位置）はfalsy のためスキップされるが補正不要
+    azimuth = (azimuth + 360) % 360;
+    spaceBuffer.push({ pitch: fPitch, roll: fRoll, azimuth });
+    if (spaceBuffer.length > BUFFER_SIZE) spaceBuffer.shift();
+}
+
+function syncLoop() {
+    if (isLocked) return;
+    if (spaceBuffer.length === 0) { requestAnimationFrame(syncLoop); return; }
+
+    // [FIX①] バッファ全件の平均を使用（最終1件参照を廃止）
+    const avgPitch = spaceBuffer.reduce((a,b) => a + b.pitch, 0) / spaceBuffer.length;
+    const avgRoll  = spaceBuffer.reduce((a,b) => a + b.roll,  0) / spaceBuffer.length;
+    // [FIX②] 方位角：循環平均（0-360循環誤差を排除）
+    const sinSum = spaceBuffer.reduce((a,b) => a + Math.sin(b.azimuth * Math.PI/180), 0);
+    const cosSum = spaceBuffer.reduce((a,b) => a + Math.cos(b.azimuth * Math.PI/180), 0);
+    const avgAz  = (Math.atan2(sinSum, cosSum) * 180/Math.PI + 360) % 360;
+
+    const spaceReady = Math.abs(90 - avgPitch) < 0.5 && Math.abs(avgRoll) < 0.5;
+
+    const res = Core.analyze(document.getElementById("lumi-video"), document.getElementById("lumi-canvas"));
+    if (res) {
+        // SQM スムージング（指数移動平均）
+        let prevAvg = lightHistory[lightHistory.length-1] || res.sqm;
+        const alpha = 0.2;
+        const smoothSQM = alpha*res.sqm + (1-alpha)*prevAvg;
+        lightHistory.push(smoothSQM); if(lightHistory.length > BUFFER_SIZE) lightHistory.shift();
+
+        const avgSQM = lightHistory.reduce((a,b)=>a+b,0)/lightHistory.length;
+        const vari = lightHistory.reduce((a,b)=>a+Math.pow(b-avgSQM,2),0)/lightHistory.length;
+
+        document.getElementById('sqi-val').innerText = avgSQM.toFixed(1);
+
+        // HUD ゲージ補間（avgPitch を使用）
+        let ringOffset = parseFloat(document.getElementById('space-ring').style.strokeDashoffset) || 565;
+        ringOffset += (565*(Math.abs(90 - avgPitch)/10) - ringOffset) * 0.15;
+        document.getElementById('space-ring').style.strokeDashoffset = ringOffset;
+
+        let lightOffset = parseFloat(document.getElementById('light-ring').style.strokeDashoffset) || 500;
+        lightOffset += (vari * 500*5 - lightOffset) * 0.15;
+        document.getElementById('light-ring').style.strokeDashoffset = lightOffset;
+
+        // 統合ロック判定
+        if (spaceReady && vari < 0.05) {
+            lockCount++;
+            if (lockCount >= LOCK_REQUIRED) executeLock(avgAz, avgSQM);
+        } else lockCount = 0;
+    }
+    requestAnimationFrame(syncLoop);
+}
+
+function executeLock(az, sqm) {
+    isLocked = true;
+    localStorage.setItem('astn_azimuth', az);
+    localStorage.setItem('astn_sqm', sqm);
+    if('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
+    document.getElementById('status-msg').innerText = "SYNC COMPLETE. REDIRECTING...";
+    Matrix.push("SYNC", `AZ:${az.toFixed(2)} SQM:${sqm.toFixed(1)}`, 2);
+    // ここでメインAR画面へ遷移
+}
+</script>
+</body>
+</html>
