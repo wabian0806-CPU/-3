@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ASTN ZENITH:ZERO [ULTIMATE]</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --c: #0ff;
+  --g: #0f8;
+  --a: #fc0;
+  --r: #f33;
+}
+body {
+  margin: 0;
+  background: #000;
+  color: var(--c);
+  font-family: 'Share Tech Mono', monospace;
+  overflow: hidden;
+  user-select: none;
+}
+body.night-mode {
+  --c: #f00;
+  --a: #f00;
+  --g: #f00;
+}
+#video {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.18;
+  filter: grayscale(1) contrast(1.2);
+}
+#hud {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  border: 1px solid rgba(0,255,255,0.05);
+}
+#hud::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.15) 50%),
+              linear-gradient(90deg, rgba(255,0,0,0.03), rgba(0,255,0,0.01), rgba(0,0,255,0.03));
+  background-size: 100% 2px, 3px 100%;
+  pointer-events: none;
+  z-index: 100;
+  opacity: 0.4;
+}
+#center {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  width: 100%;
+  transition: 1s cubic-bezier(0.4,0,0.2,1);
+}
+#angle {
+  font-size: 14px;
+  opacity: 0.6;
+  letter-spacing: 2px;
+}
+#guide {
+  font-size: 24px;
+  margin-top: 12px;
+  font-weight: bold;
+  letter-spacing: 3px;
+  color: var(--a);
+  text-shadow: 0 0 10px var(--a);
+  height: 30px;
+}
+#reticle {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  margin: 25px auto;
+  border: 2px solid rgba(0,255,255,0.2);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+#reticle::before {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--c);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.5;
+}
+#target-dot {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--a);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 10px var(--a);
+  transition: 0.1s linear;
+}
+#progress {
+  position: fixed;
+  bottom: 60px;
+  left: 10%;
+  width: 80%;
+  height: 4px;
+  background: rgba(0,255,255,0.1);
+  border-radius: 2px;
+  transition: 0.5s;
+}
+#bar {
+  height: 100%;
+  width: 0%;
+  background: var(--c);
+  box-shadow: 0 0 15px var(--c);
+  transition: 0.1s linear;
+}
+#stats {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  font-size: 11px;
+  line-height: 1.6;
+  background: rgba(0,15,30,0.4);
+  padding: 5px;
+  border-radius: 3px;
+}
+#gps {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+#matrix {
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  width: 260px;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: right;
+}
+#main-hud {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+.hud-panel {
+  position: absolute;
+  background: rgba(0,15,30,0.6);
+  padding: 10px;
+  animation: deploy 0.6s ease-out forwards;
+}
+@keyframes deploy {
+  from { opacity: 0; transform: translateY(10px); filter: blur(5px); }
+  to   { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+#boot-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.btn {
+  padding: 15px 40px;
+  border: 1px solid var(--c);
+  color: var(--c);
+  background: transparent;
+  font-family: inherit;
+  font-size: 18px;
+  margin: 10px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+.btn:active {
+  background: rgba(0,255,255,0.2);
+}
+#analysis-canvas { display: none; }
+</style>
+</head>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/suncalc@1.9.0/suncalc.js"
+        onerror="window.SunCalc=null; console.warn('SunCalc load failed');"></script>
+<div id="boot-screen">
+    <div style="font-size:24px; letter-spacing:8px; margin-bottom:30px;">ASTRONEX ASTN</div>
+    <button class="btn" onclick="init('NORMAL')">START SYNC</button>
+    <button class="btn" style="border-color:var(--r); color:var(--r);" onclick="init('NIGHT')">NIGHT VISION</button>
+</div>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="analysis-canvas"></canvas>
+<div id="hud">
+ <div id="center">
+  <div id="angle">P:---  R:---</div>
+  <div id="reticle">
+    <div id="target-dot"></div>
+  </div>
+  <div id="guide">天頂に向けてください</div>
+ </div>
+ <div id="progress"><div id="bar"></div></div>
+ <div id="stats"></div>
+ <div id="gps"></div>
+ <div id="matrix"></div>
+</div>
+<div id="main-hud">
+    <div class="hud-panel" style="top:20px; left:20px; border-left:3px solid var(--c);">
+        <div style="font-size:9px; opacity:0.6;">ENVIRONMENT</div>
+        <div id="hud-sqm" style="font-size:24px; font-weight:bold; color:var(--g);">--.-</div>
+        <div id="hud-bortle" style="font-size:11px;">BORTLE: --</div>
+    </div>
+    <div class="hud-panel" style="bottom:20px; right:20px; width:180px; border:1px solid var(--g); pointer-events:auto;">
+        <div style="font-size:9px; opacity:0.6;">EXP OPTIMIZER</div>
+        <div id="rec-exp" style="font-size:22px; font-weight:bold; color:var(--g);">--.-s</div>
+        <div style="font-size:10px; opacity:0.8;">推奨露出 (ISO800 F4 APS-C)</div>
+    </div>
+</div>
+<script>
+let lightHist=[], lockCount=0, isLocked=false;
+let CURRENT_MODE='NORMAL', gpsData="GPS取得中...";
+let videoStream=null;
+const REQUIRED=300;
+let calibrationSamples=[];
+window.ASTN_DATA=null;
+let gpsLat=0, gpsLon=0, gpsReady=false;
+navigator.geolocation.getCurrentPosition(
+    p=>{gpsLat=p.coords.latitude; gpsLon=p.coords.longitude; gpsReady=true; gpsData=`LAT:${gpsLat.toFixed(4)} LON:${gpsLon.toFixed(4)}`;},
+    ()=>{gpsReady=false; gpsData="GPS不可";}
+);
+const kalman={pitch:{x:0,P:1,Q:0.01,R:0.1}, roll:{x:0,P:1,Q:0.01,R:0.1}};
+function kf(s,m){s.P+=s.Q; const K=s.P/(s.P+s.R); s.x+=K*(m-s.x); s.P*=(1-K); return s.x;}
+const LIGHT_POLLUTION_MAP=[
+    {lat:35.6895, lon:139.6917, lp:-0.3},
+    {lat:34.6937, lon:135.5023, lp:-0.2},
+    {lat:43.0642, lon:141.3469, lp:-0.15},
+    {lat:33.5902, lon:130.4017, lp:-0.15}
+];
+function interpolateLightPollution(lat,lon){if(!gpsReady)return -0.1; const cosLat=Math.cos(lat*Math.PI/180); const nearest=LIGHT_POLLUTION_MAP.reduce((prev,curr)=>{const dp=Math.hypot(prev.lat-lat,(prev.lon-lon)*cosLat); const dc=Math.hypot(curr.lat-lat,(curr.lon-lon)*cosLat); return dc<dp?curr:prev;}); return nearest.lp;}
+let moonCorrCache={value:0,time:0};
+function computeMoonCorrection(){if(typeof SunCalc==='undefined'||SunCalc===null)return -0.2; if(!gpsReady)return -0.2; const now=Date.now(); if(now-moonCorrCache.time<60000)return moonCorrCache.value; try{const date=new Date(); const moonPos=SunCalc.getMoonPosition(date,gpsLat,gpsLon); const illum=SunCalc.getMoonIllumination(date).fraction; const cosVal=Math.max(-1.0,Math.min(1.0,Math.sin(moonPos.alt))); const result=Math.min(-0.5*illum*Math.cos(Math.acos(cosVal)),0.0); moonCorrCache={value:result,time:now}; return result;}catch(e){moonCorrCache={value:-0.2,time:now}; return -0.2;}}
+function computeAtmosphericRefraction(altDeg){if(altDeg<-0.5)return 0.0; return Math.max(0.0,1.02/Math.tan((altDeg+10.3/(altDeg+5.11))*Math.PI/180.0));}
+let seeingHist=[]; const SEEING_WINDOW=5;
+function computeSeeing(lumValues){if(lumValues.length<3)return null; const mean=lumValues.reduce((a,b)=>a+b,0)/lumValues.length; const std=Math.sqrt(lumValues.reduce((a,b)=>a+(b-mean)**2,0)/lumValues.length); if(std<0.5)return 5; if(std<1.5)return 4; if(std<3.0)return 3; if(std<6.0)return 2; return 1;}
+function computeTransparency(sqm,lpCorr){const expectedMax=22.0+lpCorr; const expectedMin=16.0; return Math.max(0,Math.min(10,((sqm-expectedMin)/(expectedMax-expectedMin))*10.0));}
+function sqmToBortle(sqm){if(sqm>=21.99)return 1; if(sqm>=21.89)return 2; if(sqm>=21.69)return 3; if(sqm>=20.49)return 4; if(sqm>=19.50)return 5; if(sqm>=18.94)return 6; if(sqm>=18.38)return 7; if(sqm>=17.80)return 8; return 9;}
+const analysisCanvas=document.getElementById('analysis-canvas'); const analysisCtx=analysisCanvas.getContext('2d'); const SAMPLE_SIZE=16;
+function getCameraLuminance(){const video=document.getElementById('video'); if(!video.videoWidth||!video.videoHeight)return null; analysisCanvas.width=SAMPLE_SIZE; analysisCanvas.height=SAMPLE_SIZE; const sx=(video.videoWidth-SAMPLE_SIZE)/2; const sy=(video.videoHeight-SAMPLE_SIZE)/2; analysisCtx.drawImage(video,sx,sy,SAMPLE_SIZE,SAMPLE_SIZE,0,0,SAMPLE_SIZE,SAMPLE_SIZE); let data; try{data=analysisCtx.getImageData(0,0,SAMPLE_SIZE,SAMPLE_SIZE).data;}catch(e){return null;} let totalLum=0; for(let i=0;i<data.length;i+=4){totalLum+=0.299*data[i]+0.587*data[i+1]+0.114*data[i+2];} const avgLum=totalLum/(SAMPLE_SIZE*SAMPLE_SIZE); seeingHist.push(avgLum); if(seeingHist.length>SEEING_WINDOW)seeingHist.shift(); const linearLum=avgLum/255.0; let sqm=22.0-2.5*Math.log10(linearLum*250.0+1.0); sqm+=computeMoonCorrection()+interpolateLightPollution(gpsLat,gpsLon); return {lum:avgLum,sqm:Math.min(sqm,22.0)};}
+async function requestOrientationPermission(){if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){const permission=await DeviceOrientationEvent.requestPermission(); if(permission!=='granted'){document.getElementById('guide').innerText='傾きセンサー許可が必要です'; return false;}} return true;}
+async function init(mode){CURRENT_MODE=mode; if(mode==='NIGHT')document.body.classList.add('night-mode'); document.getElementById("boot-screen").style.display="none"; try{videoStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}); document.getElementById("video").srcObject=videoStream;}catch(e){document.getElementById('guide').innerText='カメラ許可が必要です'; return;} if(await requestOrientationPermission())window.addEventListener("deviceorientation",handle);}
+function getStatus(pErr,rErr,vari){if(vari>15.0)return {type:"WARN",msg:"SIGNAL UNSTABLE"}; if(pErr<5&&rErr<5&&vari<10.0)return {type:"STAT",msg:"CALIBRATING..."}; if(pErr>10||rErr>10)return {type:"INFO",msg:"ADJUST ALIGNMENT"}; return {type:"STAT",msg:"ACQUIRING..."};}
+function updateTelemetry(pitch,roll,sqm,vari,confidence,lc,refr){const status=getStatus(Math.abs(90-pitch),Math.abs(roll),vari); document.getElementById("matrix").style.color=status.type==="WARN"?"var(--r)":status.type==="INFO"?"var(--a)":"var(--c)"; const lines=[`[SYS] STATE:${status.type}`,'[IMU] P:'+pitch.toFixed(1)+' R:'+roll.toFixed(1),'[OPT] SQM:'+sqm.toFixed(2)+' VAR:'+vari.toFixed(1),'[CAL] CONF:'+(confidence*100).toFixed(0)+'% LOCK:'+(Math.min(lc/REQUIRED*100,100)).toFixed(0)+'%','[ATM] REFR:'+refr.toFixed(2)+'\'','[GPS] '+gpsData,'>> '+status.msg]; document.getElementById("matrix").innerHTML=lines.join("<br>");}
+
+function handle(event){
+    const pitchRaw = event.beta||0;
+    const rollRaw = event.gamma||0;
+    const pitch = kf(kalman.pitch,pitchRaw);
+    const roll = kf(kalman.roll,rollRaw);
+
+    const lumData=getCameraLuminance();
+    if(!lumData)return;
+    const sqm = lumData.sqm;
+    const variance = seeingHist.length>1?seeingHist.reduce((a,b)=>a+(b-lumData.lum)**2,0)/seeingHist.length:0;
+    const confidence = Math.max(0,Math.min(1,1-variance/50));
+
+    if(confidence>0.8) lockCount++;
+    else lockCount=Math.max(0,lockCount-1);
+    isLocked=lockCount>=REQUIRED;
+
+    const refr=computeAtmosphericRefraction(pitch);
+
+    updateTelemetry(pitch,roll,sqm,variance,confidence,lockCount,refr);
+
+    const barEl=document.getElementById("bar");
+    barEl.style.width=Math.min(lockCount/REQUIRED*100,100)+"%";
+
+    const targetDot=document.getElementById("target-dot");
+    targetDot.style.transform=`translate(-50%,-50%) translate(${roll*1.5}px,${(pitch-90)*1.5}px)`;
+
+    document.getElementById("hud-sqm").innerText=sqm.toFixed(2);
+    document.getElementById("hud-bortle").innerText="BORTLE: "+sqmToBortle(sqm);
+
+    const recExp=document.getElementById("rec-exp");
+    let recommendedExposure=3.0;
+    if(sqm>=21) recommendedExposure=5.0;
+    else if(sqm>=20) recommendedExposure=4.0;
+    recExp.innerText=recommendedExposure.toFixed(1)+"s";
+
+    requestAnimationFrame(()=>handle(event));
+}
+
+// Utility: brightness histogram (optional)
+function getHistogram(lumArray){
+    const bins=16; const hist=Array(bins).fill(0);
+    lumArray.forEach(v=>{let idx=Math.floor(v/bins*16); if(idx>=bins) idx=bins-1; hist[idx]++;});
+    return hist;
+}
+
+// Optional: Light pollution + moon + cloud correction combined
+function getAdjustedSQM(rawSQM){
+    const lp=interpolateLightPollution(gpsLat,gpsLon);
+    const moon=computeMoonCorrection();
+    let adjSQM=rawSQM+lp+moon;
+    return Math.min(22.0,adjSQM);
+}
+
+// Boot screen button bindings already handled inline with onclick
+
+// Night mode toggle example
+function toggleNightMode(){
+    document.body.classList.toggle("night-mode");
+}
+
+// Cleanup
+window.addEventListener("beforeunload",()=>{if(videoStream){videoStream.getTracks().forEach(t=>t.stop());}});
+
+</script>
+</body>
+</html>
