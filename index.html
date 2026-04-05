@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ASTN: ASTROMETRIC [REV 12.6 PRECISION-PRO]</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root { --c-neon: #00ffff; --c-warn: #ffff00; --c-hot: #ff3333; --c-bg: #000205; --reticle-size: 240px; }
+body { margin:0; background: var(--c-bg); color: var(--c-neon); font-family: 'Share Tech Mono', monospace; overflow:hidden; user-select:none; text-shadow:0 0 2px rgba(0,255,255,0.4); font-weight:bold;}
+
+/* --- NIGHT MODE --- */
+body.night-mode { --c-neon:#ff0000; --c-hot:#ff00ff; --c-warn:#ff00ff; }
+body.night-mode #res-sqm, body.night-mode #res-nelm { color: #ff3333; }
+body.night-mode #res-rank { color: #ff6666; border-color: #ff6666; }
+body.night-mode #res-sky-label { color: #ff6666; }
+
+#boot-screen { position: fixed; inset: 0; z-index: 100; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 4px solid var(--c-neon); box-sizing: border-box; transition: opacity 0.8s; }
+#serial-tag { position: absolute; top: 12px; left: 15px; font-size: 9px; letter-spacing: 1px; color: rgba(0,255,255,0.5); text-shadow: none; line-height: 1.4; white-space: pre; pointer-events: none; }
+#splash-name { font-size: 30px; letter-spacing: 8px; color: #fff; animation: flicker 2s infinite; margin-bottom: 30px; }
+
+.btn { position: relative; padding: 18px 40px; margin: 10px; width: 280px; background: rgba(0,255,255,0.05); color: var(--c-neon); font-family: inherit; font-size: 14px; letter-spacing: 3px; cursor: pointer; border: 1px solid var(--c-neon); clip-path: polygon(10% 0, 100% 0, 100% 70%, 90% 100%, 0 100%, 0 30%); transition: all 0.2s; }
+.btn:active:not(:disabled) { background: var(--c-neon); color: #000; transform: scale(0.95); }
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+#video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.5; z-index: 1; display: none; }
+#hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; display: none; }
+#matrix { position: fixed; right: 15px; top: 15px; font-size: 10px; text-align: right; line-height: 1.4; background: rgba(0,5,10,0.85); padding: 12px; border-right: 2px solid var(--c-neon); white-space: pre; min-width: 220px; }
+
+#center { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); text-align: center; width: 100%; }
+#reticle { position: relative; width: var(--reticle-size); height: var(--reticle-size); margin: 20px auto; border: 1px solid rgba(0,255,255,0.2); border-radius: 50%; }
+#target-dot { position: absolute; width: 10px; height: 10px; background: #fff; border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%,-50%); box-shadow: 0 0 20px #fff; z-index: 12; transition: transform 0.08s linear; }
+#guide { font-size: 16px; letter-spacing: 3px; color: #fff; text-shadow: 0 0 10px var(--c-neon); min-height: 1.2em; }
+#label-sub { font-size: 10px; color: var(--c-warn); margin-top: 5px; opacity: 0.8; }
+
+#progress { position: fixed; bottom: 80px; left: 15%; width: 70%; height: 2px; background: rgba(255,255,255,0.05); }
+#bar { height: 100%; width: 0%; background: var(--c-neon); box-shadow: 0 0 10px var(--c-neon); }
+
+.hud-panel { position: absolute; background: rgba(0,5,10,0.9); padding: 18px; border: 1px solid var(--c-neon); backdrop-filter: blur(8px); z-index: 20; opacity: 0; transform: translateY(15px); transition: 0.6s; }
+.panel-active { opacity: 1; transform: translateY(0); }
+
+#res-sqm { font-size:42px; color:#fff; transition: opacity 0.15s; }
+#res-rank { position: absolute; top: 10px; right: 10px; font-size: 24px; color: var(--c-warn); border: 1px solid var(--c-warn); padding: 2px 8px; border-radius: 4px; }
+#res-sky-label { font-size: 11px; margin-top: 5px; color: var(--c-warn); }
+
+@keyframes flicker { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+</style>
+</head>
+<body>
+<script src="https://cdn.jsdelivr.net/npm/suncalc@1.9.0/suncalc.js"></script>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="proc-canvas" style="display:none;"></canvas>
+
+<div id="boot-screen">
+    <div id="serial-tag"></div>
+    <div id="splash-name">ASTROMETRIC_OS</div>
+    <div id="selectors" style="display:none; text-align:center;">
+        <button class="btn" onclick="UI.init('NORMAL')">>> NORMAL_MODE (標準)</button><br>
+        <button class="btn" style="--c-neon: var(--c-hot);" onclick="UI.init('EXTREME')">>> EXTREME (専門観測)</button>
+    </div>
+</div>
+
+<div id="hud">
+    <div id="matrix">WAITING...</div>
+    <div id="center">
+        <div id="reticle"><div id="target-dot"></div></div>
+        <div id="guide">ALIGN_ZENITH</div>
+        <div id="label-sub"></div>
+        <button id="action-btn" class="btn" style="margin-top:20px; display:none; pointer-events:auto;" onclick="UI.handleAction()">>> START_CALIB</button>
+        <button id="confirm-btn" class="btn" style="margin-top:10px; display:none; pointer-events:auto; --c-neon:var(--c-warn);" onclick="UI.confirmCovered()">>> LENS_COVERED: OK</button>
+    </div>
+    <div id="progress"><div id="bar"></div></div>
+</div>
+
+<div id="panel-sqm" class="hud-panel" style="top:20px; left:20px; width:220px;">
+    <div id="res-rank">-</div>
+    <div style="font-size:9px; opacity:0.6;">SQM (空の暗さ)</div>
+    <div id="res-sqm">--.-</div>
+    <div id="res-bortle" style="font-size:12px;">ボートル等級: --</div>
+    <div id="res-sky-label">--</div>
+    <div id="res-status" style="font-size:9px; color:var(--c-hot); margin-top:8px;">STATUS: PENDING</div>
+    <div id="res-comment" style="font-size:9px; color:var(--c-neon); margin-top:4px; border-top:1px solid rgba(0,255,255,0.2); padding-top:4px;">Waiting for scan...</div>
+    <div style="margin-top:10px; display:flex; gap:5px; pointer-events:auto;">
+        <button class="btn" style="padding:5px; width:40px; margin:0;" onclick="UI.adjK(-100)">-</button>
+        <div id="val-k" style="font-size:10px; flex:1; text-align:center; line-height:2.5;">K:1500</div>
+        <button class="btn" style="padding:5px; width:40px; margin:0;" onclick="UI.adjK(100)">+</button>
+    </div>
+</div>
+
+<div id="panel-stat" class="hud-panel" style="bottom:20px; right:20px; width:220px;">
+    <div style="font-size:9px; opacity:0.6;">観測統計 (MEDIAN STACK)</div>
+    <div id="res-nelm" style="font-size:24px; color:#fff;">--.-</div>
+    <div style="font-size:9px;">限界等級 (NELM)</div>
+    <div id="res-stars" style="font-size:11px; margin-top:8px;">同期中の星数: 0</div>
+    <div id="res-stack" style="font-size:9px; opacity:0.5;">STACK: 0 / CONF: <span id="res-conf">--%</span></div>
+</div>
+
+<script>
+const AudioFX = {
+    ctx: null,
+    init() { if(!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+    beep(f, d, type="square", vol=0.1) {
+        if(!this.ctx) return;
+        const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain();
+        osc.type = type; osc.frequency.value = f;
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + d);
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start(); osc.stop(this.ctx.currentTime + d);
+    },
+    playBoot() { this.init(); this.beep(880, 0.1); setTimeout(()=>this.beep(1760, 0.2), 100); },
+    playLock() { this.beep(1200, 0.1, "sine"); setTimeout(()=>this.beep(1500, 0.3, "sine"), 50); },
+    playErr() { this.beep(220, 0.5, "sawtooth", 0.2); }
+};
+
+window.ASTN = {
+    cfg: { w:128, h:96, k:1500, dark:0, lat:0, lon:0, mode:"NORMAL" },
+    cal: { deviceOffset: 0, baselineLP: 1.0, calibrated: false },
+    gpsStatus: "GPS: STANDBY",
+    kalman: { x: 21.0, p: 1.0, q: 0.001, r: 0.1, k: 0 },
+    stack: { buffer: [], size: 30 },
+    lastSQM: null,
+    getDisclaimer() { return "スマートフォン測定値（キャリブレーション済）。機種差による誤差あり。"; },
+    getConfLevel(conf) { return conf > 80 ? "HIGH" : (conf > 60 ? "MID" : "LOW"); },
+    applyManualCalibration(refSQM) {
+        this.cal.deviceOffset = refSQM - (this.lastSQM || 20.0);
+        this.cal.calibrated = true;
+    }
+};
+
+const Engine = {
+    history: [],
+    _lastSQM: undefined,
+    lin(v){ v/=255; return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4); },
+
+    /* --- PATCH 1: MEDIAN STACK --- */
+    getMedianFlux(buffer) {
+        if(!buffer || buffer.length === 0) return 1e-8;
+        const sorted = [...buffer].sort((a,b)=>a-b);
+        return sorted[Math.floor(sorted.length/2)];
+    },
+
+    updateKalman(m, snr) {
+        const k = window.ASTN.kalman;
+        k.r = Math.max(0.02, 0.2 / (snr + 0.1));
+        k.p += k.q; k.k = k.p / (k.p + k.r);
+        k.x += k.k * (m - k.x); k.p *= (1 - k.k);
+        return k.x;
+    },
+
+    async calibrate(v, c) {
+        const ctx = c.getContext("2d");
+        let dSamples = [];
+        const samplesCount = window.ASTN.cfg.mode==="EXTREME"?40:20;
+        for(let i=0; i<samplesCount; i++) {
+            ctx.drawImage(v, 0, 0, window.ASTN.cfg.w, window.ASTN.cfg.h);
+            const data = ctx.getImageData(0,0,window.ASTN.cfg.w,window.ASTN.cfg.h).data;
+            let sum = 0, lpSum = 0; 
+            for(let j=0; j<data.length; j+=4) {
+                const r=this.lin(data[j]), g=this.lin(data[j+1]), b=this.lin(data[j+2]);
+                sum += 0.2126*r + 0.7152*g + 0.0722*b;
+                lpSum += (r+g)/(b*2 + 1e-6);
+            }
+            dSamples.push(sum / (window.ASTN.cfg.w * window.ASTN.cfg.h));
+            if(i === samplesCount - 1) window.ASTN.cal.baselineLP = lpSum / (data.length/4); // CAPTURE BASELINE
+            document.getElementById("bar").style.width = (i*100/samplesCount) + "%";
+            await new Promise(r => setTimeout(r, 50));
+        }
+        dSamples.sort((a,b)=>a-b);
+        window.ASTN.cfg.dark = dSamples[Math.floor(dSamples.length/2)];
+    },
+
+    process(v, c) {
+        if(v.readyState < 2) return null;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(v, 0, 0, window.ASTN.cfg.w, window.ASTN.cfg.h);
+        const img = ctx.getImageData(0,0,window.ASTN.cfg.w,window.ASTN.cfg.h).data;
+        let L=[], rS=0, gS=0, bS=0;
+        for(let i=0; i<img.length; i+=4) {
+            const r=this.lin(img[i]), g=this.lin(img[i+1]), b=this.lin(img[i+2]);
+            const y=0.2126*r + 0.7152*g + 0.0722*b;
+            L.push(y); rS+=r; gS+=g; bS+=b;
+        }
+        const mean = L.reduce((a,b)=>a+b,0)/L.length;
+        window.ASTN.stack.buffer.push(mean);
+        if(window.ASTN.stack.buffer.length > window.ASTN.stack.size) window.ASTN.stack.buffer.shift();
+        
+        // --- PATCH 1: MEDIAN FLUX ---
+        const fluxRaw = this.getMedianFlux(window.ASTN.stack.buffer);
+        const flux = Math.max(1e-8, fluxRaw - window.ASTN.cfg.dark);
+        const std = Math.sqrt(L.reduce((a,x)=>a+(x-mean)**2,0)/L.length);
+        const snr = flux / (std + 1e-9);
+
+        // --- PATCH 2: CONVERGENCE DARK DRIFT ---
+        if(snr > 1.5) window.ASTN.cfg.dark = window.ASTN.cfg.dark * 0.9999 + mean * 0.0001; 
+
+        let stars = [];
+        for(let i=window.ASTN.cfg.w+1; i<L.length-window.ASTN.cfg.w-1; i++) {
+            if(i%window.ASTN.cfg.w===0 || i%window.ASTN.cfg.w===window.ASTN.cfg.w-1) continue;
+            const lap = L[i]*4 - (L[i-1]+L[i+1]+L[i-window.ASTN.cfg.w]+L[i+window.ASTN.cfg.w]);
+            if(lap > mean + std*3.8) stars.push(i);
+        }
+        const persistent = stars.filter(p => this.history.some(h => h.some(hp => Math.abs(hp-p)<4)));
+        this.history = [stars, ...this.history.slice(0, 5)];
+
+        // --- PATCH 4: LP NORMALIZATION ---
+        const lpRaw = (rS+gS)/(bS*2 + 1e-6);
+        const lp = lpRaw / (window.ASTN.cal.baselineLP || 1.0);
+
+        let rawSQM = 22.1 - 2.5 * Math.log10(flux * window.ASTN.cfg.k);
+        
+        // --- PATCH 5: LP SOFT CORRECTION ---
+        rawSQM -= Math.max(0, Math.log10(lp + 0.45) * 1.2);
+
+        if(window.ASTN.cfg.lat !== 0) {
+            const m = SunCalc.getMoonPosition(new Date(), window.ASTN.cfg.lat, window.ASTN.cfg.lon);
+            if(m.altitude > 0) rawSQM -= SunCalc.getMoonIllumination(new Date()).fraction * Math.sin(m.altitude) * 2.2;
+        }
+
+        // --- PATCH 3: OFFSET BEFORE KALMAN ---
+        let correctedRaw = rawSQM;
+        if(window.ASTN.cal.calibrated) correctedRaw += window.ASTN.cal.deviceOffset;
+
+        let filtered = this.updateKalman(correctedRaw, snr);
+        window.ASTN.lastSQM = filtered;
+
+        let conf = 100;
+        if(snr < 1.4) conf -= 45;
+        if(std > 0.09) conf -= 30;
+        if(window.ASTN.stack.buffer.length < 10) conf -= 20; // PATCH 5: WARMUP PENALTY
+        if(persistent.length === 0 && filtered > 20.0) conf -= 10;
+
+        // --- PATCH 5: DELTA STABILITY ---
+        if(this._lastSQM !== undefined) {
+            if(Math.abs(filtered - this._lastSQM) > 0.5) conf -= 20;
+        }
+        this._lastSQM = filtered;
+
+        let status = "STABLE";
+        if(snr < 1.4) status = "ERR:LOW_SNR";
+        else if(std > 0.09) status = "ERR:THERMAL";
+        else if(persistent.length < 1 && filtered > 19.5) status = "ERR:NO_STARS";
+
+        const rank = filtered > 21.5 ? "EXCELLENT" : filtered > 20.5 ? "GOOD" : filtered > 19.5 ? "FAIR" : "POOR";
+        const comment = (rank==="EXCELLENT") ? "天の川が明瞭に見えます" : (rank==="GOOD") ? "望遠鏡観測に適しています" : (rank==="FAIR") ? "双眼鏡レベルで観測可能" : "観測には不向きです";
+        const label = filtered > 21.6 ? "究極の暗闇" : filtered > 20.8 ? "良好な星空" : filtered > 19.0 ? "郊外・平地" : "市街地の空";
+
+        return {
+            sqm: filtered.toFixed(2), nelm: (0.46 * filtered - 3.1).toFixed(1),
+            stars: persistent.length, 
+            bortle: [21.9, 21.6, 21.3, 20.8, 19.5, 18.5, 17.5, 16.0].findIndex(v => filtered >= v) + 1 || 9,
+            conf: Math.max(0, conf), status, rank, label, comment, snr: snr.toFixed(2)
+        };
+    }
+};
+
+const UI = {
+    phase: "BOOT", orient: { p:0, r:0 }, _lastFrame: 0, _orientHandler: null,
+    async init(mode) {
+        AudioFX.playBoot();
+        window.ASTN.cfg.mode = mode;
+        window.ASTN.stack.size = mode === "EXTREME" ? 80 : 30;
+        if(mode === 'EXTREME') document.body.classList.add('night-mode');
+        document.getElementById("boot-screen").style.opacity = 0;
+        setTimeout(()=> document.getElementById("boot-screen").style.display='none', 800);
+        document.getElementById("video").style.display='block';
+        document.getElementById("hud").style.display='block';
+
+        const constraints = { video: { facingMode: { ideal: "environment" } } };
+        try {
+            const s = await navigator.mediaDevices.getUserMedia(constraints);
+            document.getElementById("video").srcObject = s;
+        } catch(e) { document.getElementById("guide").innerText = "CAM_ERROR"; return; }
+
+        if(navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                p => {
+                    window.ASTN.cfg.lat = p.coords.latitude; window.ASTN.cfg.lon = p.coords.longitude;
+                    window.ASTN.gpsStatus = `GPS: ${p.coords.latitude.toFixed(2)},${p.coords.longitude.toFixed(2)}`;
+                },
+                e => { window.ASTN.gpsStatus = "GPS: OFF"; }
+            );
+        }
+
+        this._orientHandler = e => {
+            this.orient.p = e.beta || 0; this.orient.r = e.gamma || 0;
+            const isF = Math.abs(this.orient.p)<5 && Math.abs(this.orient.r)<5;
+            if(this.phase === "ALIGN") {
+                document.getElementById("guide").innerText = isF ? "STABLE: READY" : "ZENITH ALIGNMENT";
+                document.getElementById("action-btn").style.display = isF ? "block" : "none";
+            }
+            document.getElementById("target-dot").style.transform = `translate(-50%,-50%) translate(${this.orient.r*3}px,${this.orient.p*3}px)`;
+        };
+        window.addEventListener("deviceorientation", this._orientHandler);
+        this.phase = "ALIGN";
+    },
+
+    async handleAction() {
+        this.phase = "CALIB"; AudioFX.beep(440, 0.1);
+        document.getElementById("action-btn").style.display = "none";
+        document.getElementById("guide").innerText = "▶ COVER LENS ◀";
+        document.getElementById("confirm-btn").style.display = "block";
+    },
+
+    confirmCovered() {
+        const btn = document.getElementById("confirm-btn");
+        btn.disabled = true; btn.style.display = "none";
+        document.getElementById("guide").innerText = "MEASURING DARK & LP...";
+        Engine.calibrate(document.getElementById("video"), document.getElementById("proc-canvas")).then(() => {
+            AudioFX.playLock();
+            document.getElementById("guide").innerText = "▶ UNCOVER LENS ◀";
+            setTimeout(() => this.startScan(), 2000);
+        });
+    },
+
+    startScan() {
+        this.phase = "RUN"; 
+        document.querySelectorAll(".hud-panel").forEach(el => el.classList.add("panel-active"));
+        this.runLoop();
+    },
+
+    runLoop() {
+        if(this.phase !== "RUN") return; 
+        const now = performance.now();
+        if(now - this._lastFrame >= 200) {
+            this._lastFrame = now;
+            const out = Engine.process(document.getElementById("video"), document.getElementById("proc-canvas"));
+            if(out) {
+                document.getElementById("res-sqm").innerText = out.sqm;
+                document.getElementById("res-rank").innerText = out.rank;
+                document.getElementById("res-sky-label").innerText = out.label;
+                document.getElementById("res-comment").innerText = out.comment;
+                document.getElementById("res-bortle").innerText = `ボートル等級: ${out.bortle}`;
+                document.getElementById("res-status").innerText = `STAT: ${out.status}`;
+                document.getElementById("res-nelm").innerText = out.nelm;
+                document.getElementById("res-stars").innerText = `SYNCED_STARS: ${out.stars}`;
+                
+                // --- PATCH 9: UI ENHANCEMENT ---
+                const confEl = document.getElementById("res-conf");
+                const confLevel = window.ASTN.getConfLevel(out.conf);
+                confEl.innerText = `${out.conf}% (${confLevel})`;
+                confEl.style.color = out.conf > 80 ? "#00ffcc" : (out.conf > 60 ? "#ffee88" : "#ff6666");
+
+                const guide = document.getElementById("guide");
+                if(out.conf > 80) guide.innerText = "測定安定";
+                else if(out.conf > 60) guide.innerText = "やや不安定（環境変動あり）";
+                else guide.innerText = "測定不安定（空の明るさ・雲・機種差）";
+
+                document.getElementById("matrix").innerText = `SQM: ${out.sqm}\nCONF: ${out.conf}% (${confLevel})\n${out.comment}\n${window.ASTN.getDisclaimer()}`;
+            }
+        }
+        requestAnimationFrame(()=>this.runLoop());
+    },
+    adjK(v) { 
+        window.ASTN.cfg.k = Math.max(10, Math.min(9999, window.ASTN.cfg.k + v)); 
+        document.getElementById("val-k").innerText = `K:${window.ASTN.cfg.k}`; 
+    }
+};
+
+(function(){
+    const id = Math.floor(Math.random()*1e6);
+    document.getElementById("serial-tag").innerText = `UNIT:${id}\nREV:12.6_PRECISION_PRO\nOS:ASTRONEX`;
+    setTimeout(()=>document.getElementById("selectors").style.display='block', 1000);
+})();
+</script>
+</body>
+</html>
