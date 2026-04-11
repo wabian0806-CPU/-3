@@ -9,13 +9,15 @@
         :root {
             --astn-main: #00FFCC;
             --astn-dim: rgba(0, 255, 204, 0.15);
+            --astn-scan: rgba(0, 255, 204, 0.02);
             --hmd-red: #FF0000;
         }
 
         body { margin: 0; padding: 0; background-color: #000; color: var(--astn-main); font-family: 'JetBrains Mono', monospace; overflow: hidden; -webkit-user-select: none; user-select: none; }
 
         /* ── HMD Optics ── */
-        .scanline { position: fixed; width: 100%; height: 100%; pointer-events: none; background: repeating-linear-gradient(transparent, transparent 2px, rgba(0, 255, 204, 0.02) 3px); z-index: 100; opacity: 0.5; }
+        /* Bug4 fix: scanline uses CSS variable so it follows mode switch */
+        .scanline { position: fixed; width: 100%; height: 100%; pointer-events: none; background: repeating-linear-gradient(transparent, transparent 2px, var(--astn-scan) 3px); z-index: 100; opacity: 0.5; }
         .grid-bg { position: fixed; width: 100%; height: 100%; background-image: linear-gradient(var(--astn-dim) 1px, transparent 1px), linear-gradient(90deg, var(--astn-dim) 1px, transparent 1px); background-size: 60px 60px; background-position: center; opacity: 0.15; z-index: 1; }
 
         .reticle { position: fixed; width: 30px; height: 30px; border: 2px solid var(--astn-main); pointer-events: none; z-index: 50; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -24,7 +26,7 @@
         .bl { bottom: 30px; left: 30px; border-right: none; border-top: none; }
         .br { bottom: 30px; right: 30px; border-left: none; border-top: none; }
 
-        body.mode-nightscape { --astn-main: #FF8C00; --astn-dim: rgba(255, 140, 0, 0.1); }
+        body.mode-nightscape { --astn-main: #FF8C00; --astn-dim: rgba(255, 140, 0, 0.1); --astn-scan: rgba(255, 140, 0, 0.02); }
         body.mode-nightscape .reticle { width: 50px; height: 50px; border-width: 1px; }
 
         #camera-preview { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; filter: brightness(0.7) contrast(1.1); display: none; }
@@ -37,10 +39,30 @@
         .stacking-only { opacity: 0; transition: opacity 0.3s; }
         .stacking-active .stacking-only { opacity: 1; }
 
-        #control-panel { position: fixed; bottom: 40px; right: 40px; z-index: 70; pointer-events: auto; background: rgba(0, 10, 10, 0.85); border: 1px solid var(--astn-main); padding: 15px; backdrop-filter: blur(8px); }
+        /* Bug1 fix: hidden until boot() reveals it */
+        #control-panel { position: fixed; bottom: 40px; right: 40px; z-index: 70; pointer-events: auto; background: rgba(0, 10, 10, 0.85); border: 1px solid var(--astn-main); padding: 15px; backdrop-filter: blur(8px); display: none; }
         button, select { background: transparent; color: var(--astn-main); border: 1px solid var(--astn-main); padding: 8px 12px; cursor: pointer; font-family: inherit; font-size: 11px; }
 
         #convergence-ring { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; display: none; }
+
+        /* ── Sensor Debug Panel ── */
+        #sensor-debug {
+            position: fixed; bottom: 40px; left: 40px; z-index: 70;
+            background: rgba(0, 10, 10, 0.85); border: 1px solid var(--astn-main);
+            backdrop-filter: blur(8px); display: none; min-width: 200px;
+            font-size: 9px; line-height: 1.8;
+        }
+        #debug-toggle {
+            padding: 6px 12px; cursor: pointer; border-bottom: 1px solid var(--astn-dim);
+            display: flex; justify-content: space-between; align-items: center;
+            letter-spacing: 2px; pointer-events: auto;
+        }
+        #debug-body { padding: 8px 12px; }
+        #dbg-source { margin-bottom: 4px; font-weight: 600; }
+        .dbg-row { display: flex; justify-content: space-between; gap: 16px; opacity: 0.85; }
+        .dbg-label { opacity: 0.5; }
+        .dbg-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+        #dbg-stab .dbg-val { color: var(--astn-main); }
 
         /* Overlays */
         .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 150; pointer-events: auto; }
@@ -80,17 +102,32 @@
         </svg>
     </div>
 
+    <!-- Sensor Debug Panel -->
+    <div id="sensor-debug">
+        <div id="debug-toggle" onclick="ASTN.toggleDebug()">
+            <span>SENSOR DEBUG</span><span id="debug-arrow">&#9660;</span>
+        </div>
+        <div id="debug-body">
+            <div id="dbg-source" class="dbg-row"><span class="dbg-label">SOURCE</span><span class="dbg-val" id="dbg-source-val">INIT...</span></div>
+            <div class="dbg-row"><span class="dbg-label">AX/AY/AZ</span><span class="dbg-val" id="dbg-accel">-.--/-.--/-.--</span></div>
+            <div class="dbg-row"><span class="dbg-label">&#945;/&#946;/&#947;</span><span class="dbg-val" id="dbg-orient">---/--/--</span></div>
+            <div class="dbg-row"><span class="dbg-label">NET_G</span><span class="dbg-val" id="dbg-net">-.---</span></div>
+            <div class="dbg-row"><span class="dbg-label">SHAKE_AVG</span><span class="dbg-val" id="dbg-shake-avg">-.---</span></div>
+            <div id="dbg-stab" class="dbg-row"><span class="dbg-label">STABILITY</span><span class="dbg-val" id="dbg-stab-val">---%</span></div>
+        </div>
+    </div>
+
     <div id="onboarding-overlay" class="overlay">
         <div class="ob-step active" id="ob-step-1">
             <div style="font-size:40px;">&#127756;</div>
             <div style="font-weight:600; letter-spacing:3px;">AIM AT SKY</div>
-            <div style="font-size:12px; color:rgba(0,255,204,0.7);">&#31278;&#26411;&#12434;&#31354;&#12395;&#21521;&#12369;&#12289;&#38745;&#27490;&#12375;&#12390;&#12367;&#12384;&#12373;&#12356;&#12290;</div>
+            <div style="font-size:12px; color:rgba(0,255,204,0.7);">端末を空に向け、静止してください。</div>
             <button onclick="_obNext(2)">NEXT &#8594;</button>
         </div>
         <div class="ob-step" id="ob-step-2">
             <div style="font-size:40px;">&#9989;</div>
             <div style="font-weight:600; letter-spacing:3px;">READY</div>
-            <div style="font-size:12px; color:rgba(0,255,204,0.7);">&#35373;&#23450;&#23436;&#20102;&#12290;&#35266;&#27979;&#12434;&#38283;&#22987;&#12375;&#12414;&#12377;&#12290;</div>
+            <div style="font-size:12px; color:rgba(0,255,204,0.7);">設定完了。観測を開始します。</div>
             <button onclick="_obFinish()">START</button>
         </div>
     </div>
@@ -127,7 +164,20 @@
     <script>
     (function() {
         const ASTN = {
-            state: { mode: 'astro', isStacking: false, stackTime: 0, lastShake: 0 },
+            state: {
+                mode: 'astro',
+                isStacking: false,
+                stackTime: 0,
+                // Sensor state — updated by real or simulated sensor
+                accel: { x: 0, y: 0, z: 9.8 },
+                orient: { alpha: 0, beta: 0, gamma: 0 },
+                shakeBuffer: [],   // rolling window (20 samples = 10s)
+                lastShake: 0,      // rolling average of net-g
+                sensorSource: 'INIT',
+                debugOpen: true,
+            },
+
+            // ── Boot ──────────────────────────────────────────────────────
             boot: async function() {
                 const vid = document.getElementById('camera-preview');
                 try {
@@ -137,20 +187,113 @@
                 document.getElementById('ar-canvas').style.display = 'block';
                 document.getElementById('ui-layer').style.display = 'flex';
                 document.getElementById('control-panel').style.display = 'block';
+                document.getElementById('sensor-debug').style.display = 'block';
 
-                // v2.1.0 Onboarding check
-                if(!localStorage.getItem('astn_ob_done')) {
+                if (!localStorage.getItem('astn_ob_done')) {
                     setTimeout(() => { document.getElementById('onboarding-overlay').style.display = 'flex'; }, 500);
                 }
+                this.initSensors();
                 this.startEngines();
             },
+
+            // ── Sensor Engine ─────────────────────────────────────────────
+            initSensors: function() {
+                const BUFFER = 20;
+                let liveMotion = false;
+
+                // Push a net-g sample into the rolling buffer
+                const pushShake = (ax, ay, az) => {
+                    const net = Math.abs(Math.sqrt(ax*ax + ay*ay + az*az) - 9.8);
+                    this.state.shakeBuffer.push(net);
+                    if (this.state.shakeBuffer.length > BUFFER) this.state.shakeBuffer.shift();
+                    this.state.lastShake = this.state.shakeBuffer.reduce((s, v) => s + v, 0) / this.state.shakeBuffer.length;
+                    this.state.accel = { x: ax, y: ay, z: az };
+                };
+
+                window.addEventListener('devicemotion', (e) => {
+                    const a = e.accelerationIncludingGravity;
+                    if (!a || (a.x === null && a.y === null)) return;
+                    liveMotion = true;
+                    this.state.sensorSource = 'LIVE';
+                    pushShake(a.x || 0, a.y || 0, a.z || 0);
+                });
+
+                window.addEventListener('deviceorientation', (e) => {
+                    if (e.alpha === null) return;
+                    this.state.orient = {
+                        alpha: e.alpha || 0,
+                        beta:  e.beta  || 0,
+                        gamma: e.gamma || 0
+                    };
+                });
+
+                // Desktop / no-sensor fallback: simulate realistic micro-vibration
+                setTimeout(() => {
+                    if (liveMotion) return;
+                    this.state.sensorSource = 'SIM';
+                    let t = 0;
+                    const sim = setInterval(() => {
+                        if (liveMotion) { clearInterval(sim); return; }
+                        t += 0.08;
+                        // Low-frequency micro-vibration + tiny random noise
+                        const jitter = Math.sin(t * 1.7) * 0.04 + Math.sin(t * 3.1) * 0.02 + (Math.random() - 0.5) * 0.01;
+                        pushShake(jitter * 0.3, 9.8 + jitter * 0.15, jitter * 0.2);
+                        this.state.orient = {
+                            alpha: (this.state.orient.alpha + 0.02) % 360,
+                            beta:  45 + Math.sin(t * 0.4) * 3,
+                            gamma: Math.cos(t * 0.6) * 2
+                        };
+                    }, 100);
+                }, 1500);
+            },
+
+            // ── Main Loop ────────────────────────────────────────────────
+            startEngines: function() {
+                setInterval(() => {
+                    // UTC clock
+                    document.getElementById('time-display').textContent =
+                        `UTC ${new Date().toISOString().slice(11, 19)}`;
+
+                    // Stability % from rolling shake average
+                    // lastShake ≈ 0.0 when still, spikes when shaken
+                    // Sensitivity: 0.05g avg → ~75% stability
+                    const stab = Math.max(0, Math.min(100, 100 - (this.state.lastShake * 800)));
+
+                    // Update sensor debug panel
+                    const s = this.state;
+                    document.getElementById('dbg-source-val').textContent = s.sensorSource;
+                    document.getElementById('dbg-accel').textContent =
+                        `${s.accel.x.toFixed(2)}/${s.accel.y.toFixed(2)}/${s.accel.z.toFixed(2)}`;
+                    document.getElementById('dbg-orient').textContent =
+                        `${s.orient.alpha.toFixed(0)}/${s.orient.beta.toFixed(0)}/${s.orient.gamma.toFixed(0)}`;
+                    const net = Math.abs(Math.sqrt(s.accel.x**2 + s.accel.y**2 + s.accel.z**2) - 9.8);
+                    document.getElementById('dbg-net').textContent = net.toFixed(3) + 'g';
+                    document.getElementById('dbg-shake-avg').textContent = s.lastShake.toFixed(3) + 'g';
+                    document.getElementById('dbg-stab-val').textContent = stab.toFixed(1) + '%';
+
+                    if (this.state.isStacking) {
+                        this.state.stackTime += 0.5;
+                        const aqi = (stab * 0.7) + (Math.min(100, (this.state.stackTime / 300) * 100) * 0.3);
+                        document.getElementById('reliability-score').textContent = `AQI: ${aqi.toFixed(2)}%`;
+                        document.getElementById('stack-counter').textContent =
+                            `STACK: ${this.state.stackTime.toFixed(1)}s / 300s`;
+                        document.getElementById('ring-progress').style.strokeDashoffset =
+                            377 - (377 * (this.state.stackTime % 10) / 10);
+                        document.getElementById('ring-aqi').textContent = Math.floor(aqi) + '%';
+                    }
+                }, 500);
+            },
+
+            // ── UI Actions ───────────────────────────────────────────────
             setScene: function(m) {
                 this.state.mode = m;
                 document.getElementById('mode-select-overlay').style.display = 'none';
-                document.body.className = 'mode-' + m;
-                document.getElementById('scene-indicator').textContent = m.toUpperCase() + " MODE";
-                document.getElementById('panel-astro').style.display = (m==='astro'?'block':'none');
-                document.getElementById('panel-nightscape').style.display = (m==='nightscape'?'block':'none');
+                // Bug3 fix: preserve stacking-active class instead of wiping all classes
+                const wasStacking = document.body.classList.contains('stacking-active');
+                document.body.className = 'mode-' + m + (wasStacking ? ' stacking-active' : '');
+                document.getElementById('scene-indicator').textContent = m.toUpperCase() + ' MODE';
+                document.getElementById('panel-astro').style.display     = (m === 'astro'       ? 'block' : 'none');
+                document.getElementById('panel-nightscape').style.display = (m === 'nightscape'  ? 'block' : 'none');
             },
             openModeSelect: function() { document.getElementById('mode-select-overlay').style.display = 'flex'; },
             toggleStacking: function() {
@@ -158,44 +301,42 @@
                 const btn = document.getElementById('btn-stack');
                 document.getElementById('convergence-ring').style.display = this.state.isStacking ? 'block' : 'none';
                 document.body.classList.toggle('stacking-active', this.state.isStacking);
-                btn.textContent = this.state.isStacking ? "STOP STACK" : "START STACK";
-                if(this.state.isStacking) this.state.stackTime = 0;
+                btn.textContent = this.state.isStacking ? 'STOP STACK' : 'START STACK';
+                if (this.state.isStacking) {
+                    this.state.stackTime = 0;
+                    this.state.shakeBuffer = [];  // reset rolling buffer on new stack
+                }
             },
-            startEngines: function() {
-                setInterval(() => {
-                    document.getElementById('time-display').textContent = `UTC ${new Date().toISOString().slice(11,19)}`;
-                    if(this.state.isStacking) {
-                        this.state.stackTime += 0.5;
-                        const stab = Math.max(0, 100 - (this.state.lastShake * 500));
-                        const aqi = (stab * 0.7) + (Math.min(100, (this.state.stackTime/300)*100) * 0.3);
-                        document.getElementById('reliability-score').textContent = `AQI: ${aqi.toFixed(2)}%`;
-                        document.getElementById('stack-counter').textContent = `STACK: ${this.state.stackTime.toFixed(1)}s / 300s`;
-                        document.getElementById('ring-progress').style.strokeDashoffset = 377 - (377 * (this.state.stackTime % 10) / 10);
-                        document.getElementById('ring-aqi').textContent = Math.floor(aqi) + "%";
-                    }
-                }, 500);
-                window.addEventListener('devicemotion', (e) => {
-                    const a = e.accelerationIncludingGravity;
-                    if(a) this.state.lastShake = Math.abs(a.x)+Math.abs(a.y)+Math.abs(a.z)-9.8;
-                });
+            toggleDebug: function() {
+                this.state.debugOpen = !this.state.debugOpen;
+                document.getElementById('debug-body').style.display  = this.state.debugOpen ? 'block' : 'none';
+                document.getElementById('debug-arrow').textContent    = this.state.debugOpen ? '▼' : '▶';
             },
-            screenOff: function() { document.body.style.opacity = (document.body.style.opacity==='0.2'?'1':'0.2'); },
-            register: function() { alert("Target Locked"); },
-            compute: function() { alert("Computing..."); }
+            screenOff: function() { document.body.style.opacity = (document.body.style.opacity === '0.2' ? '1' : '0.2'); },
+            register: function() { alert('Target Locked'); },
+            compute:  function() { alert('Computing...'); }
         };
+
         window.ASTN = ASTN;
-        window._obNext = (s) => { document.querySelectorAll('.ob-step').forEach(e=>e.classList.remove('active')); document.getElementById('ob-step-'+s).classList.add('active'); };
+        window._obNext  = (s) => { document.querySelectorAll('.ob-step').forEach(e => e.classList.remove('active')); document.getElementById('ob-step-' + s).classList.add('active'); };
         window._obFinish = () => { localStorage.setItem('astn_ob_done', 'true'); document.getElementById('onboarding-overlay').style.display = 'none'; };
 
         document.getElementById('initBtn').addEventListener('click', async () => {
-            if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function') await DeviceOrientationEvent.requestPermission();
+            // Bug2 fix: request both orientation AND motion permissions (required on iOS 13+)
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try { await DeviceOrientationEvent.requestPermission(); } catch(e) { console.warn('Orientation permission:', e); }
+            }
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                try { await DeviceMotionEvent.requestPermission(); } catch(e) { console.warn('Motion permission:', e); }
+            }
             document.getElementById('boot-splash').classList.add('fadeOut');
-            setTimeout(() => { document.getElementById('boot-splash').style.display='none'; ASTN.boot(); }, 1000);
+            setTimeout(() => { document.getElementById('boot-splash').style.display = 'none'; ASTN.boot(); }, 1000);
         });
+
         (async function() {
             const container = document.getElementById('etymology');
-            const lines = ["HARDWARE_LINK", "QUATERNION_SYNC", "STARDUST_DB_LOAD"];
-            for (let l of lines) {
+            const lines = ['HARDWARE_LINK', 'QUATERNION_SYNC', 'STARDUST_DB_LOAD'];
+            for (const l of lines) {
                 container.innerHTML += `<div>${l} ... [OK]</div>`;
                 await new Promise(r => setTimeout(r, 220));
             }
