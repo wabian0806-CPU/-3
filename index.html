@@ -1,330 +1,347 @@
 <!DOCTYPE html>
-
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ASTRONEX (ASTN) PARALLAX v2.1.0</title>
+    <title>ASTRONEX (ASTN) PARALLAX v2.1.4</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        /* ── AR Layer ── */
-        body { margin: 0; padding: 0; background-color: #000; color: #00FFCC; font-family: 'JetBrains Mono', 'Courier New', monospace; overflow: hidden; -webkit-user-select: none; user-select: none; }
-        #camera-preview { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; filter: brightness(0.6) contrast(1.2); display: none; }
-        #ar-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; display: none; }
-        #ui-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; padding: 20px; box-sizing: border-box; pointer-events: none; display: none; flex-direction: column; justify-content: space-between; }
-        #control-panel { position: fixed; bottom: 20px; right: 20px; z-index: 30; pointer-events: auto; background: rgba(0, 20, 20, 0.8); border: 1px solid #00FFCC; padding: 10px; display: none; }
-        .hud-header { display: flex; justify-content: space-between; align-items: flex-start; text-shadow: 0 0 5px #00FFCC; }
-        .reliability-box { border-left: 3px solid #00FFCC; padding-left: 10px; background: rgba(0, 255, 204, 0.1); }
-        .status-tag { font-weight: bold; padding: 2px 8px; background: #00FFCC; color: #000; margin-bottom: 5px; display: inline-block; }
-        #kernel-log { font-size: 10px; line-height: 1.2; max-height: 150px; overflow: hidden; opacity: 0.8; }
-        select, button { background: #000; color: #00FFCC; border: 1px solid #00FFCC; padding: 5px; cursor: pointer; font-family: inherit; }
-        #three-status { color: #FFAA00; font-size: 12px; margin-top: 5px; }
+        :root {
+            --astn-main: #00FFCC;
+            --astn-dim: rgba(0, 255, 204, 0.15);
+            --astn-scan: rgba(0, 255, 204, 0.02);
+            --hmd-red: #FF0000;
+        }
 
-        .state-stack  { color: #0088FF; text-shadow: 0 0 8px rgba(0,136,255,0.6); }
-        .state-stable { color: #00FF88; text-shadow: 0 0 8px rgba(0,255,136,0.4); }
-        .state-reject { color: #FF3B30; text-shadow: 0 0 8px rgba(255,59,48,0.5); }
+        body { margin: 0; padding: 0; background-color: #000; color: var(--astn-main); font-family: 'JetBrains Mono', monospace; overflow: hidden; -webkit-user-select: none; user-select: none; }
 
-        #mode-select-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 50; background: rgba(0,0,0,0.92); display: none; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
-        #mode-select-overlay .mode-title { font-size: 11px; letter-spacing: 4px; color: #00FFCC; margin-bottom: 10px; }
-        .mode-card { width: 280px; padding: 20px; border: 1px solid #00FFCC; cursor: pointer; background: rgba(0,255,204,0.05); transition: all 0.2s; text-align: left; }
-        .mode-card:hover { background: rgba(0,255,204,0.15); box-shadow: 0 0 20px rgba(0,255,204,0.3); }
-        .mode-card .mc-title { font-size: 14px; font-weight: 600; color: #00FFCC; margin-bottom: 6px; }
-        .mode-card .mc-desc  { font-size: 10px; color: rgba(0,255,204,0.6); line-height: 1.6; }
-        .mode-card.nightscape { border-color: #FF8C00; background: rgba(255,140,0,0.05); }
-        .mode-card.nightscape:hover { background: rgba(255,140,0,0.15); box-shadow: 0 0 20px rgba(255,140,0,0.3); }
-        .mode-card.nightscape .mc-title { color: #FF8C00; }
+        /* ── HMD Optics ── */
+        /* Bug4 fix: scanline uses CSS variable so it follows mode switch */
+        .scanline { position: fixed; width: 100%; height: 100%; pointer-events: none; background: repeating-linear-gradient(transparent, transparent 2px, var(--astn-scan) 3px); z-index: 100; opacity: 0.5; }
+        .grid-bg { position: fixed; width: 100%; height: 100%; background-image: linear-gradient(var(--astn-dim) 1px, transparent 1px), linear-gradient(90deg, var(--astn-dim) 1px, transparent 1px); background-size: 60px 60px; background-position: center; opacity: 0.15; z-index: 1; }
 
-        #sqm-display { font-size: 10px; color: rgba(0,255,204,0.7); margin-top: 3px; display: none; }
-        #astro-panel  { display: block; }
-        #nightscape-panel { display: none; }
-        .scene-label { font-size: 9px; letter-spacing: 2px; color: rgba(0,255,204,0.5); margin-bottom: 4px; margin-top: 6px; }
-        #scene-indicator { font-size: 9px; letter-spacing: 2px; padding: 2px 6px; background: #00FFCC; color: #000; display: inline-block; margin-bottom: 6px; }
-        #scene-indicator.nightscape { background: #FF8C00; }
-
-        #convergence-ring { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 15; display: none; }
-        #convergence-ring svg { overflow: visible; }
-
-        #result-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 60; background: #000; display: none; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 40px; }
-        #result-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
-        #result-actions { position: relative; z-index: 1; display: flex; gap: 16px; }
-        #result-actions button { padding: 12px 32px; font-size: 13px; letter-spacing: 3px; background: rgba(0,0,0,0.7); border: 1px solid #00FFCC; color: #00FFCC; cursor: pointer; font-family: inherit; }
-
-        #adaptive-status { font-size: 9px; color: rgba(0,255,204,0.5); margin-top: 2px; display: none; }
-
-        #onboarding-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 55; background: rgba(0,0,0,0.92); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 0; padding: 40px 30px; box-sizing: border-box; }
-        #onboarding-overlay .ob-step { display: none; flex-direction: column; align-items: center; text-align: center; gap: 20px; width: 100%; }
-        #onboarding-overlay .ob-step.active { display: flex; }
-        .ob-icon { font-size: 56px; }
-        .ob-title { font-size: 15px; letter-spacing: 4px; color: #00FFCC; font-weight: 600; }
-        .ob-body  { font-size: 12px; line-height: 1.9; color: rgba(0,255,204,0.7); max-width: 300px; }
-        .ob-next  { padding: 12px 40px; border: 1px solid #00FFCC; background: transparent; color: #00FFCC; font-family: inherit; font-size: 12px; letter-spacing: 3px; cursor: pointer; margin-top: 8px; }
-        .ob-next:hover { background: rgba(0,255,204,0.1); }
-        .ob-dots { display: flex; gap: 8px; margin-top: 16px; }
-        .ob-dot  { width: 6px; height: 6px; border-radius: 50%; background: rgba(0,255,204,0.3); }
-        .ob-dot.active { background: #00FFCC; }
-
-        :root { --hmd-main: #FF0000; --hmd-dim: #300000; --hmd-warn: #FFCC00; --hmd-err: #FF3B30; --hmd-glow: rgba(255,0,0,0.15); }
-        .scanline { position: absolute; width: 100%; height: 100%; pointer-events: none; background: repeating-linear-gradient(transparent, transparent 2px, rgba(255,0,0,0.01) 3px); z-index: 100; opacity: 0.5; }
-        .grid-bg { position: absolute; width: 100%; height: 100%; background-image: linear-gradient(var(--hmd-dim) 1px, transparent 1px), linear-gradient(90deg, var(--hmd-dim) 1px, transparent 1px); background-size: 60px 60px; background-position: center; opacity: 0.25; z-index: 1; }
-        .reticle { position: absolute; width: 25px; height: 25px; border: 1px solid var(--hmd-dim); pointer-events: none; z-index: 5; }
+        .reticle { position: fixed; width: 30px; height: 30px; border: 2px solid var(--astn-main); pointer-events: none; z-index: 50; transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
         .tl { top: 30px; left: 30px; border-right: none; border-bottom: none; }
         .tr { top: 30px; right: 30px; border-left: none; border-bottom: none; }
         .bl { bottom: 30px; left: 30px; border-right: none; border-top: none; }
         .br { bottom: 30px; right: 30px; border-left: none; border-top: none; }
-        #boot-splash { position: fixed; width: 100%; height: 100%; z-index: 200; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #000; transition: opacity 1.2s; }
-        #logo-container { text-align: center; margin-bottom: 50px; }
-        #logo-astn { font-size: 72px; font-weight: 600; letter-spacing: 20px; color: var(--hmd-main); text-shadow: 0 0 15px var(--hmd-glow); margin-bottom: 10px; }
-        #logo-fullname { font-size: 14px; letter-spacing: 5px; font-weight: 400; color: var(--hmd-main); }
-        #logo-rev { font-size: 10px; color: var(--hmd-dim); margin-top: 12px; letter-spacing: 2px; }
-        #etymology { font-size: 12px; line-height: 2.2; color: var(--hmd-main); max-width: 480px; width: 100%; padding: 0 20px; box-sizing: border-box; }
-        .etym-line { opacity: 0; margin: 10px 0; animation: fadeInLine 0.6s forwards; display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,0,0,0.05); }
-        @keyframes fadeInLine { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
-        #initBtn { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); border: 1px solid var(--hmd-main); padding: 18px 60px; cursor: pointer; opacity: 0; animation: btnReveal 0.5s ease 3.0s forwards; transition: all 0.3s; background: transparent; color: var(--hmd-main); font-family: inherit; letter-spacing: 4px; font-size: 13px; box-shadow: 0 0 10px var(--hmd-glow); z-index: 1000; }
-        @keyframes btnReveal { to { opacity: 1; } }
-        #initBtn:hover { background: rgba(255,0,0,0.08); box-shadow: 0 0 20px rgba(255,0,0,0.4); }
-        #js-error-display { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255,0,0,0.9); color: #fff; font-size: 10px; padding: 8px 12px; z-index: 9999; word-break: break-all; }
-        #boot-log { display: none; position: fixed; width: 100%; height: 100%; z-index: 201; padding: 50px; box-sizing: border-box; font-size: 11px; line-height: 1.7; overflow-y: auto; scroll-behavior: smooth; border-left: 1px solid var(--hmd-dim); color: var(--hmd-main); background: #000; }
-        .log-err { color: var(--hmd-err); font-weight: bold; }
-        .log-warn { color: var(--hmd-warn); }
-        #boot-ready { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); opacity: 0; font-size: 20px; text-align: center; transition: opacity 1.0s; cursor: pointer; width: 100%; letter-spacing: 5px; font-weight: 600; color: var(--hmd-main); text-shadow: 0 0 15px var(--hmd-glow); z-index: 202; }
-        .fadeOut { opacity: 0 !important; transition: opacity 1.2s; pointer-events: none; }
+
+        body.mode-nightscape { --astn-main: #FF8C00; --astn-dim: rgba(255, 140, 0, 0.1); --astn-scan: rgba(255, 140, 0, 0.02); }
+        body.mode-nightscape .reticle { width: 50px; height: 50px; border-width: 1px; }
+
+        #camera-preview { position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; filter: brightness(0.7) contrast(1.1); display: none; }
+        #ar-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; display: none; }
+
+        #ui-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 60; padding: 40px; box-sizing: border-box; pointer-events: none; display: none; flex-direction: column; justify-content: space-between; }
+        .reliability-box { border-left: 2px solid var(--astn-main); padding-left: 15px; }
+        #scene-indicator { font-size: 10px; letter-spacing: 3px; padding: 2px 10px; background: var(--astn-main); color: #000; font-weight: bold; margin-bottom: 10px; display: inline-block; }
+
+        .stacking-only { opacity: 0; transition: opacity 0.3s; }
+        .stacking-active .stacking-only { opacity: 1; }
+
+        /* Bug1 fix: hidden until boot() reveals it */
+        #control-panel { position: fixed; bottom: 40px; right: 40px; z-index: 70; pointer-events: auto; background: rgba(0, 10, 10, 0.85); border: 1px solid var(--astn-main); padding: 15px; backdrop-filter: blur(8px); display: none; }
+        button, select { background: transparent; color: var(--astn-main); border: 1px solid var(--astn-main); padding: 8px 12px; cursor: pointer; font-family: inherit; font-size: 11px; }
+
+        #convergence-ring { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20; display: none; }
+
+        /* ── Sensor Debug Panel ── */
+        #sensor-debug {
+            position: fixed; bottom: 40px; left: 40px; z-index: 70;
+            background: rgba(0, 10, 10, 0.85); border: 1px solid var(--astn-main);
+            backdrop-filter: blur(8px); display: none; min-width: 200px;
+            font-size: 9px; line-height: 1.8;
+        }
+        #debug-toggle {
+            padding: 6px 12px; cursor: pointer; border-bottom: 1px solid var(--astn-dim);
+            display: flex; justify-content: space-between; align-items: center;
+            letter-spacing: 2px; pointer-events: auto;
+        }
+        #debug-body { padding: 8px 12px; }
+        #dbg-source { margin-bottom: 4px; font-weight: 600; }
+        .dbg-row { display: flex; justify-content: space-between; gap: 16px; opacity: 0.85; }
+        .dbg-label { opacity: 0.5; }
+        .dbg-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+        #dbg-stab .dbg-val { color: var(--astn-main); }
+
+        /* Overlays */
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 150; pointer-events: auto; }
+        .ob-step { display: none; text-align: center; max-width: 300px; }
+        .ob-step.active { display: flex; flex-direction: column; gap: 20px; }
+
+        #boot-splash { position: fixed; width: 100%; height: 100%; z-index: 200; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #000; }
+        #initBtn { border: 1px solid var(--hmd-red); padding: 20px 60px; color: var(--hmd-red); background: transparent; cursor: pointer; letter-spacing: 5px; opacity: 0; transition: 0.5s; }
+        .fadeOut { opacity: 0 !important; transition: opacity 1s; pointer-events: none; }
     </style>
 </head>
-<body>
-    <div class="scanline"></div>
-    <div class="grid-bg"></div>
+<body class="idle">
+    <div class="scanline"></div><div class="grid-bg"></div>
     <div class="reticle tl"></div><div class="reticle tr"></div>
     <div class="reticle bl"></div><div class="reticle br"></div>
 
-    <div id="boot-splash">
-        <div id="logo-container">
-            <div id="logo-astn">ASTN</div>
-            <div id="logo-fullname">TACTICAL ASTRONOMICS SYSTEM</div>
-            <div id="logo-rev">PARALLAX CORE Rev. 2.1.0 // PRECESSION+KF+ONBOARDING</div>
-        </div>
-        <div id="etymology"></div>
-        <button id="initBtn">INITIALIZE HARDWARE LINK</button>
-    </div>
-
-    <div id="boot-log"></div>
-    <div id="boot-ready">SYSTEM READY<br><span style="font-size:11px;color:var(--hmd-dim);font-weight:400;">[ TAP TO ENTER OBSERVATION DECK ]</span></div>
-    <div id="js-error-display"></div>
-
     <video id="camera-preview" autoplay playsinline muted></video>
     <canvas id="ar-canvas"></canvas>
+
     <div id="ui-layer">
         <div class="hud-header">
             <div class="reliability-box">
-                <div id="scene-indicator">NIGHTSCAPE MODE</div>
-                <div id="reliability-score">AQI: 0.00%</div>
-                <div id="stack-counter">STACK_INTEGRITY: 0.00s / 300.00s</div>
-                <div id="sqm-display">SQM: — mag/arcsec²</div>
-                <div id="adaptive-status">ADAPTIVE: —</div>
+                <div id="scene-indicator">ASTRO MODE</div>
+                <div id="reliability-score" class="stacking-only" style="font-size:16px; font-weight:600;">AQI: 0.00%</div>
+                <div id="stack-counter" class="stacking-only" style="font-size:9px;">STACK: 0.0s / 300s</div>
+                <div id="sqm-display" style="font-size:9px; margin-top:5px; opacity:0.7;">SQM: ANALYZING...</div>
             </div>
-            <div id="time-display">UTC 00:00:00</div>
+            <div id="time-display" style="font-size:11px; position:fixed; top:40px; right:40px;">UTC 00:00:00</div>
         </div>
-        <div id="kernel-log"></div>
     </div>
 
     <div id="convergence-ring">
-        <svg width="160" height="160" viewBox="-80 -80 160 160">
-            <circle cx="0" cy="0" r="60" fill="none" stroke="rgba(0,255,204,0.15)" stroke-width="3"/>
-            <circle id="ring-progress" cx="0" cy="0" r="60" fill="none" stroke="#00FFCC" stroke-width="3" stroke-dasharray="377" stroke-dashoffset="377" stroke-linecap="round" transform="rotate(-90)"/>
-            <circle id="ring-dot" cx="0" cy="0" r="4" fill="rgba(0,255,204,0.6)"/>
-            <text id="ring-aqi" x="0" y="5" text-anchor="middle" fill="#00FFCC" font-size="12" font-family="'JetBrains Mono','Courier New',monospace">—</text>
+        <svg width="140" height="140" viewBox="-70 -70 140 140">
+            <circle r="60" fill="none" stroke="var(--astn-dim)" stroke-width="1"/>
+            <circle id="ring-progress" r="60" fill="none" stroke="var(--astn-main)" stroke-width="3" stroke-dasharray="377" stroke-dashoffset="377" transform="rotate(-90)"/>
+            <text id="ring-aqi" y="6" text-anchor="middle" fill="var(--astn-main)" font-size="16" font-weight="600">&#8212;</text>
         </svg>
     </div>
 
-    <div id="result-overlay">
-        <canvas id="result-canvas"></canvas>
-        <div id="result-actions">
-            <button onclick="ASTN.resultSave()">💾 SAVE</button>
-            <button onclick="ASTN.resultClose()">✕ CLOSE</button>
+    <!-- Sensor Debug Panel -->
+    <div id="sensor-debug">
+        <div id="debug-toggle" onclick="ASTN.toggleDebug()">
+            <span>SENSOR DEBUG</span><span id="debug-arrow">&#9660;</span>
+        </div>
+        <div id="debug-body">
+            <div id="dbg-source" class="dbg-row"><span class="dbg-label">SOURCE</span><span class="dbg-val" id="dbg-source-val">INIT...</span></div>
+            <div class="dbg-row"><span class="dbg-label">AX/AY/AZ</span><span class="dbg-val" id="dbg-accel">-.--/-.--/-.--</span></div>
+            <div class="dbg-row"><span class="dbg-label">&#945;/&#946;/&#947;</span><span class="dbg-val" id="dbg-orient">---/--/--</span></div>
+            <div class="dbg-row"><span class="dbg-label">NET_G</span><span class="dbg-val" id="dbg-net">-.---</span></div>
+            <div class="dbg-row"><span class="dbg-label">SHAKE_AVG</span><span class="dbg-val" id="dbg-shake-avg">-.---</span></div>
+            <div id="dbg-stab" class="dbg-row"><span class="dbg-label">STABILITY</span><span class="dbg-val" id="dbg-stab-val">---%</span></div>
         </div>
     </div>
 
-    <div id="onboarding-overlay">
+    <div id="onboarding-overlay" class="overlay">
         <div class="ob-step active" id="ob-step-1">
-            <div class="ob-icon">🌌</div>
-            <div class="ob-title">AIM AT THE SKY</div>
-            <div class="ob-body">端末を夜空に向けてください。<br>静止するだけで自動的に観測が始まります。</div>
-            <button class="ob-next" onclick="_obNext(2)">NEXT →</button>
-            <div class="ob-dots"><div class="ob-dot active"></div><div class="ob-dot"></div><div class="ob-dot"></div></div>
+            <div style="font-size:40px;">&#127756;</div>
+            <div style="font-weight:600; letter-spacing:3px;">AIM AT SKY</div>
+            <div style="font-size:12px; color:rgba(0,255,204,0.7);">端末を空に向け、静止してください。</div>
+            <button onclick="_obNext(2)">NEXT &#8594;</button>
         </div>
         <div class="ob-step" id="ob-step-2">
-            <div class="ob-icon">🎯</div>
-            <div class="ob-title">READING THE RING</div>
-            <div class="ob-body"><span style="color:#0088FF">●</span> 青 — 蓄積中。静止を維持してください<br><span style="color:#00FF88">●</span> 緑 — 安定待機。もう少し静止を<br><span style="color:#FF3B30">●</span> 赤 — 棄却中。理由が上部に表示されます</div>
-            <button class="ob-next" onclick="_obNext(3)">NEXT →</button>
-            <div class="ob-dots"><div class="ob-dot"></div><div class="ob-dot active"></div><div class="ob-dot"></div></div>
-        </div>
-        <div class="ob-step" id="ob-step-3">
-            <div class="ob-icon">✅</div>
-            <div class="ob-title">FINISHING</div>
-            <div class="ob-body">端末を下に向けると撮影が完了します。<br>結果は自動で全画面表示されます。<br>保存またはやり直しを選べます。</div>
-            <button class="ob-next" onclick="_obFinish()">START OBSERVING</button>
-            <div class="ob-dots"><div class="ob-dot"></div><div class="ob-dot"></div><div class="ob-dot active"></div></div>
+            <div style="font-size:40px;">&#9989;</div>
+            <div style="font-weight:600; letter-spacing:3px;">READY</div>
+            <div style="font-size:12px; color:rgba(0,255,204,0.7);">設定完了。観測を開始します。</div>
+            <button onclick="_obFinish()">START</button>
         </div>
     </div>
 
-    <div id="mode-select-overlay">
-        <div class="mode-title">SELECT OBSERVATION MODE</div>
-        <div class="mode-card" onclick="ASTN.setScene('astro')">
-            <div class="mc-title">⭐ ASTRO MODE</div>
-            <div class="mc-desc">天体観測・星野撮影<br>RA/DEC補正・天球座標AR<br>ライブスタック / 固定スタック</div>
-        </div>
-        <div class="mode-card nightscape" onclick="ASTN.setScene('nightscape')">
-            <div class="mc-title">🌆 NIGHTSCAPE MODE</div>
-            <div class="mc-desc">夜景・夜間風景撮影<br>ホモグラフィ補正・中心優先加重<br>手持ちスタック / 三脚スタック</div>
-        </div>
+    <div id="mode-select-overlay" class="overlay">
+        <div style="font-size:12px; letter-spacing:5px; margin-bottom:20px;">SYSTEM SELECTION</div>
+        <button onclick="ASTN.setScene('astro')" style="width:280px; padding:25px;">&#11088; ASTRO MODE</button>
+        <button onclick="ASTN.setScene('nightscape')" style="width:280px; padding:25px; border-color:#FF8C00; color:#FF8C00;">&#127750; NIGHTSCAPE MODE</button>
     </div>
 
     <div id="control-panel">
-        <div style="display:flex;gap:4px;margin-bottom:6px;">
-            <button onclick="ASTN.openModeSelect()" style="font-size:9px;padding:3px 8px;">MODE</button>
-            <button onclick="ASTN.stackLive()" style="font-size:9px;padding:3px 8px;">▶ LIVE STACK</button>
-            <button onclick="ASTN.stackFixed()" style="font-size:9px;padding:3px 8px;">📷 FIXED STACK</button>
-            <button onclick="ASTN.stackStop()" style="font-size:9px;padding:3px 8px;">■ STOP</button>
-            <button onclick="ASTN.stackSave()" style="font-size:9px;padding:3px 8px;">💾</button>
-            <button id="stack-mode-btn" onclick="ASTN.screenOff()" style="font-size:9px;padding:3px 8px;">🌙</button>
+        <div style="display:flex; gap:8px; margin-bottom:15px; border-bottom:1px solid var(--astn-dim); padding-bottom:10px;">
+            <button onclick="ASTN.openModeSelect()">MODE</button>
+            <button id="btn-stack" onclick="ASTN.toggleStacking()" style="font-weight:600;">START STACK</button>
+            <button onclick="ASTN.screenOff()">&#127769;</button>
         </div>
-        <div id="astro-panel">
-            <div class="scene-label">ASTRO CONTROLS</div>
-            <select id="star-select">
-                <option value="Polaris">Polaris (α UMi)</option>
-                <option value="Sirius">Sirius (α CMa)</option>
-                <option value="Vega">Vega (α Lyr)</option>
-                <option value="Arcturus">Arcturus (α Boo)</option>
-                <option value="Capella">Capella (α Aur)</option>
-                <option value="Rigel">Rigel (β Ori)</option>
-                <option value="Procyon">Procyon (α CMi)</option>
-                <option value="Betelgeuse">Betelgeuse (α Ori)</option>
-                <option value="Altair">Altair (α Aql)</option>
-                <option value="Deneb">Deneb (α Cyg)</option>
-                <option value="Aldebaran">Aldebaran (α Tau)</option>
-                <option value="Antares">Antares (α Sco)</option>
-                <option value="Spica">Spica (α Vir)</option>
-                <option value="Regulus">Regulus (α Leo)</option>
-                <option value="Fomalhaut">Fomalhaut (α PsA)</option>
-                <option value="Pollux">Pollux (β Gem)</option>
-                <option value="Cor Caroli">Cor Caroli (α CVn)</option>
-                <option value="Alpheratz">Alpheratz (α And)</option>
-                <option value="Mirach">Mirach (β And)</option>
-                <option value="Mirfak">Mirfak (α Per)</option>
+        <div id="panel-astro">
+            <select id="star-select" style="width:100%; margin-bottom:8px;">
+                <option value="Polaris">Polaris</option><option value="Sirius">Sirius</option>
             </select>
-            <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;">
-                <button onclick="ASTN.zenith()">ZENITH</button>
-                <button onclick="ASTN.solarCal()">SOLAR</button>
-                <button onclick="ASTN.register()">REG★</button>
-                <button onclick="ASTN.compute()">3PT</button>
-                <button onclick="ASTN.reset()">RST</button>
-            </div>
-            <div id="three-log" style="font-size:10px;margin-top:4px;">登録済み: 0/3</div>
+            <button onclick="ASTN.register()" style="width:100%;">REGISTER TARGET&#9733;</button>
         </div>
-        <div id="nightscape-panel">
-            <div class="scene-label">NIGHTSCAPE CONTROLS</div>
-            <div style="display:flex;flex-wrap:wrap;gap:3px;">
-                <button onclick="ASTN.zenith()">ZENITH</button>
-                <button onclick="ASTN.compute()">HOMO</button>
-                <button onclick="ASTN.reset()">RST</button>
-            </div>
-            <div id="ns-status" style="font-size:10px;margin-top:4px;color:#FF8C00;">夜景/夜間風景を向けてLIVEを押す</div>
+        <div id="panel-nightscape" style="display:none;">
+            <button onclick="ASTN.compute()" style="width:100%;">ALIGN HORIZON</button>
         </div>
-        <div id="three-status" style="color:#FFAA00;font-size:10px;margin-top:4px;">起動中...</div>
+    </div>
+
+    <div id="boot-splash">
+        <div style="font-size:80px; letter-spacing:20px; color:var(--hmd-red); font-weight:600;">ASTN</div>
+        <div id="etymology" style="margin:30px 0; font-size:11px; color:var(--hmd-red); text-align:center;"></div>
+        <button id="initBtn">INITIALIZE HARDWARE LINK</button>
     </div>
 
     <script>
-    window.onerror = function(msg, src, line, col, err) {
-        var el = document.getElementById('js-error-display');
-        if (el) { el.style.display = 'block'; el.textContent = 'JS ERR L' + line + ': ' + msg; }
-        var btn = document.getElementById('initBtn');
-        if (btn) btn.style.opacity = '1';
-        return false;
-    };
-    window.addEventListener('unhandledrejection', function(e) {
-        var el = document.getElementById('js-error-display');
-        if (el) { el.style.display = 'block'; el.textContent = 'PROMISE ERR: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason)); }
-    });
-
     (function() {
-        try {
-            const ASTN = (function() {
-                "use strict";
-                const WGSL_REFRACTION = `fn atmospheric_refraction_rad(alt_true_rad: f32, P_hpa: f32, T_kelvin: f32) -> f32 { let alt_deg = alt_true_rad * 57.29577951f; if (alt_deg < -0.5f) { return 0.0f; } let denom = alt_deg + 4.4f; let arg_rad = (alt_deg + (7.31f / denom)) * (3.14159265f / 180.0f); let tan_val = tan(arg_rad); var R_arcmin: f32; if (abs(tan_val) < 1e-6f) { R_arcmin = 0.0f; } else { R_arcmin = 1.0f / tan_val; } let f_p = P_hpa / 1013.25f; let f_t = 283.15f / T_kelvin; return R_arcmin * f_p * f_t / 3438.0f; }`;
-                const WGSL_QUAT = `fn quat_conj(q: vec4f) -> vec4f { return vec4f(q.x, -q.y, -q.z, -q.w); } fn quat_normalize(q: vec4f) -> vec4f { let ls = dot(q, q); if (ls < 1e-10f) { return vec4f(1.0, 0.0, 0.0, 0.0); } return q * inverseSqrt(ls); } fn quat_rotate_vec3(q: vec4f, v: vec3f) -> vec3f { let qv = vec3f(q.y, q.z, q.w); let uv = cross(qv, v); let uuv = cross(qv, uv); return v + (uv * q.x + uuv) * 2.0f; } fn quat_to_mat3(q: vec4f) -> mat3x3f { let qw=q.x; let qx=q.y; let qy=q.z; let qz=q.w; let x2=qx*qx; let y2=qy*qy; let z2=qz*qz; let xy=qx*qy; let xz=qx*qz; let yz=qy*qz; let wx=qw*qx; let wy=qw*qy; let wz=qw*qz; return mat3x3f(1.0-2.0*(y2+z2), 2.0*(xy+wz), 2.0*(xz-wy), 2.0*(xy-wz), 1.0-2.0*(x2+z2), 2.0*(yz+wx), 2.0*(xz+wy), 2.0*(yz-wx), 1.0-2.0*(x2+y2)); }`;
-                
-                return {
-                    boot: async function() {
-                        console.log("ASTN Engine Booting...");
-                        const vid = document.getElementById('camera-preview');
-                        try {
-                            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-                            vid.srcObject = stream;
-                            vid.style.display = 'block';
-                        } catch(e) { console.error("Camera Error:", e); }
-                        
-                        document.getElementById('ar-canvas').style.display = 'block';
-                        document.getElementById('ui-layer').style.display = 'flex';
-                        document.getElementById('control-panel').style.display = 'block';
-                    },
-                    setScene: function(m) { console.log("Mode:", m); },
-                    openModeSelect: function() { document.getElementById('mode-select-overlay').style.display = 'flex'; },
-                    stackLive: function() {}, stackFixed: function() {}, stackStop: function() {}, stackSave: function() {}, screenOff: function() {},
-                    zenith: function() {}, solarCal: function() {}, register: function() {}, compute: function() {}, reset: function() {},
-                    resultSave: function() {}, resultClose: function() { document.getElementById('result-overlay').style.display = 'none'; }
-                };
-            })();
-            window.ASTN = ASTN;
+        const ASTN = {
+            state: {
+                mode: 'astro',
+                isStacking: false,
+                stackTime: 0,
+                // Sensor state — updated by real or simulated sensor
+                accel: { x: 0, y: 0, z: 9.8 },
+                orient: { alpha: 0, beta: 0, gamma: 0 },
+                shakeBuffer: [],   // rolling window (20 samples = 10s)
+                lastShake: 0,      // rolling average of net-g
+                sensorSource: 'INIT',
+                debugOpen: true,
+            },
 
-            const initBtn = document.getElementById('initBtn');
-            if (initBtn) {
-                initBtn.addEventListener('click', async function() {
-                    // iOS センサー許可リクエスト
-                    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                        try { await DeviceOrientationEvent.requestPermission(); } catch(e) { console.error(e); }
-                    }
-                    
-                    document.getElementById('boot-splash').classList.add('fadeOut');
-                    document.getElementById('boot-ready').style.opacity = '1';
-                    
-                    document.getElementById('boot-ready').onclick = function() {
-                        this.classList.add('fadeOut');
-                        setTimeout(() => {
-                            document.getElementById('boot-splash').style.display = 'none';
-                            this.style.display = 'none';
-                            ASTN.boot();
-                            if (!localStorage.getItem('astn_ob_done')) {
-                                setTimeout(() => { document.getElementById('onboarding-overlay').style.display = 'flex'; }, 500);
-                            }
-                        }, 1000);
+            // ── Boot ──────────────────────────────────────────────────────
+            boot: async function() {
+                const vid = document.getElementById('camera-preview');
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                    vid.srcObject = stream; vid.style.display = 'block';
+                } catch(e) { console.error(e); }
+                document.getElementById('ar-canvas').style.display = 'block';
+                document.getElementById('ui-layer').style.display = 'flex';
+                document.getElementById('control-panel').style.display = 'block';
+                document.getElementById('sensor-debug').style.display = 'block';
+
+                if (!localStorage.getItem('astn_ob_done')) {
+                    setTimeout(() => { document.getElementById('onboarding-overlay').style.display = 'flex'; }, 500);
+                }
+                this.initSensors();
+                this.startEngines();
+            },
+
+            // ── Sensor Engine ─────────────────────────────────────────────
+            initSensors: function() {
+                const BUFFER = 20;
+                let liveMotion = false;
+
+                // Push a net-g sample into the rolling buffer
+                const pushShake = (ax, ay, az) => {
+                    const net = Math.abs(Math.sqrt(ax*ax + ay*ay + az*az) - 9.8);
+                    this.state.shakeBuffer.push(net);
+                    if (this.state.shakeBuffer.length > BUFFER) this.state.shakeBuffer.shift();
+                    this.state.lastShake = this.state.shakeBuffer.reduce((s, v) => s + v, 0) / this.state.shakeBuffer.length;
+                    this.state.accel = { x: ax, y: ay, z: az };
+                };
+
+                window.addEventListener('devicemotion', (e) => {
+                    const a = e.accelerationIncludingGravity;
+                    if (!a || (a.x === null && a.y === null)) return;
+                    liveMotion = true;
+                    this.state.sensorSource = 'LIVE';
+                    pushShake(a.x || 0, a.y || 0, a.z || 0);
+                });
+
+                window.addEventListener('deviceorientation', (e) => {
+                    if (e.alpha === null) return;
+                    this.state.orient = {
+                        alpha: e.alpha || 0,
+                        beta:  e.beta  || 0,
+                        gamma: e.gamma || 0
                     };
                 });
-            }
 
-            window._obNext = function(step) {
-                document.querySelectorAll('.ob-step').forEach(el => el.classList.remove('active'));
-                document.getElementById('ob-step-' + step).classList.add('active');
-            };
-            window._obFinish = function() {
-                localStorage.setItem('astn_ob_done', 'true');
-                document.getElementById('onboarding-overlay').style.display = 'none';
-            };
+                // Desktop / no-sensor fallback: simulate realistic micro-vibration
+                setTimeout(() => {
+                    if (liveMotion) return;
+                    this.state.sensorSource = 'SIM';
+                    let t = 0;
+                    const sim = setInterval(() => {
+                        if (liveMotion) { clearInterval(sim); return; }
+                        t += 0.08;
+                        // Low-frequency micro-vibration + tiny random noise
+                        const jitter = Math.sin(t * 1.7) * 0.04 + Math.sin(t * 3.1) * 0.02 + (Math.random() - 0.5) * 0.01;
+                        pushShake(jitter * 0.3, 9.8 + jitter * 0.15, jitter * 0.2);
+                        this.state.orient = {
+                            alpha: (this.state.orient.alpha + 0.02) % 360,
+                            beta:  45 + Math.sin(t * 0.4) * 3,
+                            gamma: Math.cos(t * 0.6) * 2
+                        };
+                    }, 100);
+                }, 1500);
+            },
 
-            (async function() {
-                const container = document.getElementById('etymology');
-                if (!container) return;
-                const lines = [["LINKING", "HARDWARE"], ["SYNCING", "QUATERNION"], ["LOADING", "STARDUST_DB"]];
-                for (let line of lines) {
-                    let d = document.createElement('div');
-                    d.className = 'etym-line';
-                    d.innerHTML = `<span>${line[0]}</span><span>${line[1]}</span>`;
-                    container.appendChild(d);
-                    await new Promise(r => setTimeout(r, 220));
+            // ── Main Loop ────────────────────────────────────────────────
+            startEngines: function() {
+                setInterval(() => {
+                    // UTC clock
+                    document.getElementById('time-display').textContent =
+                        `UTC ${new Date().toISOString().slice(11, 19)}`;
+
+                    // Stability % from rolling shake average
+                    // lastShake ≈ 0.0 when still, spikes when shaken
+                    // Sensitivity: 0.05g avg → ~75% stability
+                    const stab = Math.max(0, Math.min(100, 100 - (this.state.lastShake * 800)));
+
+                    // Update sensor debug panel
+                    const s = this.state;
+                    document.getElementById('dbg-source-val').textContent = s.sensorSource;
+                    document.getElementById('dbg-accel').textContent =
+                        `${s.accel.x.toFixed(2)}/${s.accel.y.toFixed(2)}/${s.accel.z.toFixed(2)}`;
+                    document.getElementById('dbg-orient').textContent =
+                        `${s.orient.alpha.toFixed(0)}/${s.orient.beta.toFixed(0)}/${s.orient.gamma.toFixed(0)}`;
+                    const net = Math.abs(Math.sqrt(s.accel.x**2 + s.accel.y**2 + s.accel.z**2) - 9.8);
+                    document.getElementById('dbg-net').textContent = net.toFixed(3) + 'g';
+                    document.getElementById('dbg-shake-avg').textContent = s.lastShake.toFixed(3) + 'g';
+                    document.getElementById('dbg-stab-val').textContent = stab.toFixed(1) + '%';
+
+                    if (this.state.isStacking) {
+                        this.state.stackTime += 0.5;
+                        const aqi = (stab * 0.7) + (Math.min(100, (this.state.stackTime / 300) * 100) * 0.3);
+                        document.getElementById('reliability-score').textContent = `AQI: ${aqi.toFixed(2)}%`;
+                        document.getElementById('stack-counter').textContent =
+                            `STACK: ${this.state.stackTime.toFixed(1)}s / 300s`;
+                        document.getElementById('ring-progress').style.strokeDashoffset =
+                            377 - (377 * (this.state.stackTime % 10) / 10);
+                        document.getElementById('ring-aqi').textContent = Math.floor(aqi) + '%';
+                    }
+                }, 500);
+            },
+
+            // ── UI Actions ───────────────────────────────────────────────
+            setScene: function(m) {
+                this.state.mode = m;
+                document.getElementById('mode-select-overlay').style.display = 'none';
+                // Bug3 fix: preserve stacking-active class instead of wiping all classes
+                const wasStacking = document.body.classList.contains('stacking-active');
+                document.body.className = 'mode-' + m + (wasStacking ? ' stacking-active' : '');
+                document.getElementById('scene-indicator').textContent = m.toUpperCase() + ' MODE';
+                document.getElementById('panel-astro').style.display     = (m === 'astro'       ? 'block' : 'none');
+                document.getElementById('panel-nightscape').style.display = (m === 'nightscape'  ? 'block' : 'none');
+            },
+            openModeSelect: function() { document.getElementById('mode-select-overlay').style.display = 'flex'; },
+            toggleStacking: function() {
+                this.state.isStacking = !this.state.isStacking;
+                const btn = document.getElementById('btn-stack');
+                document.getElementById('convergence-ring').style.display = this.state.isStacking ? 'block' : 'none';
+                document.body.classList.toggle('stacking-active', this.state.isStacking);
+                btn.textContent = this.state.isStacking ? 'STOP STACK' : 'START STACK';
+                if (this.state.isStacking) {
+                    this.state.stackTime = 0;
+                    this.state.shakeBuffer = [];  // reset rolling buffer on new stack
                 }
-                document.getElementById('initBtn').style.opacity = '1';
-            })();
+            },
+            toggleDebug: function() {
+                this.state.debugOpen = !this.state.debugOpen;
+                document.getElementById('debug-body').style.display  = this.state.debugOpen ? 'block' : 'none';
+                document.getElementById('debug-arrow').textContent    = this.state.debugOpen ? '▼' : '▶';
+            },
+            screenOff: function() { document.body.style.opacity = (document.body.style.opacity === '0.2' ? '1' : '0.2'); },
+            register: function() { alert('Target Locked'); },
+            compute:  function() { alert('Computing...'); }
+        };
 
-        } catch(e) { console.error("Critical Engine Error:", e); }
+        window.ASTN = ASTN;
+        window._obNext  = (s) => { document.querySelectorAll('.ob-step').forEach(e => e.classList.remove('active')); document.getElementById('ob-step-' + s).classList.add('active'); };
+        window._obFinish = () => { localStorage.setItem('astn_ob_done', 'true'); document.getElementById('onboarding-overlay').style.display = 'none'; };
+
+        document.getElementById('initBtn').addEventListener('click', async () => {
+            // Bug2 fix: request both orientation AND motion permissions (required on iOS 13+)
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try { await DeviceOrientationEvent.requestPermission(); } catch(e) { console.warn('Orientation permission:', e); }
+            }
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                try { await DeviceMotionEvent.requestPermission(); } catch(e) { console.warn('Motion permission:', e); }
+            }
+            document.getElementById('boot-splash').classList.add('fadeOut');
+            setTimeout(() => { document.getElementById('boot-splash').style.display = 'none'; ASTN.boot(); }, 1000);
+        });
+
+        (async function() {
+            const container = document.getElementById('etymology');
+            const lines = ['HARDWARE_LINK', 'QUATERNION_SYNC', 'STARDUST_DB_LOAD'];
+            for (const l of lines) {
+                container.innerHTML += `<div>${l} ... [OK]</div>`;
+                await new Promise(r => setTimeout(r, 220));
+            }
+            document.getElementById('initBtn').style.opacity = '1';
+        })();
     })();
     </script>
 </body>
