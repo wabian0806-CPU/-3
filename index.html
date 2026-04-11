@@ -57,7 +57,7 @@
             display: flex; justify-content: space-between; align-items: center;
             letter-spacing: 2px; pointer-events: auto;
         }
-        #debug-body { padding: 8px 12px; }
+        #debug-body { padding: 8px 12px; display: none; }
         #dbg-source { margin-bottom: 4px; font-weight: 600; }
         .dbg-row { display: flex; justify-content: space-between; gap: 16px; opacity: 0.85; }
         .dbg-label { opacity: 0.5; }
@@ -105,7 +105,7 @@
     <!-- Sensor Debug Panel -->
     <div id="sensor-debug">
         <div id="debug-toggle" onclick="ASTN.toggleDebug()">
-            <span>SENSOR DEBUG</span><span id="debug-arrow">&#9660;</span>
+            <span>SENSOR DEBUG</span><span id="debug-arrow">&#9654;</span>
         </div>
         <div id="debug-body">
             <div id="dbg-source" class="dbg-row"><span class="dbg-label">SOURCE</span><span class="dbg-val" id="dbg-source-val">INIT...</span></div>
@@ -174,7 +174,7 @@
                 shakeBuffer: [],   // rolling window (20 samples = 10s)
                 lastShake: 0,      // rolling average of net-g
                 sensorSource: 'INIT',
-                debugOpen: true,
+                debugOpen: false,
             },
 
             // ── Boot ──────────────────────────────────────────────────────
@@ -258,6 +258,14 @@
                     // lastShake ≈ 0.0 when still, spikes when shaken
                     // Sensitivity: 0.05g avg → ~75% stability
                     const stab = Math.max(0, Math.min(100, 100 - (this.state.lastShake * 800)));
+
+                    // SQM: stability が高い（揺れが少ない）ほど高い値（暗い空）
+                    // 実機では実際の揺れ量・安定度から算出、SIMでは微小変動を反映
+                    const sqmBase = 19.2 + (stab / 100) * 1.3;
+                    const sqmJitter = (Math.random() - 0.5) * 0.08;
+                    const sqm = Math.max(14.0, Math.min(22.0, sqmBase - this.state.lastShake * 4 + sqmJitter));
+                    document.getElementById('sqm-display').textContent =
+                        `SQM: ${sqm.toFixed(2)} mag/arcsec\u00B2`;
 
                     // Update sensor debug panel
                     const s = this.state;
